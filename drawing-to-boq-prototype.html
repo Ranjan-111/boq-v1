@@ -1,0 +1,2061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DRAWING-TO-BOQ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+--canvas:#000;--surface-soft:#0d0d0d;--surface-card:#1a1a1a;--surface-elev:#262626;
+--carbon:#2b2b2b;--hairline:#3c3c3c;--hairline-strong:#262626;
+--ink:#fff;--body:#bbb;--body-strong:#e6e6e6;--muted:#7e7e7e;
+--m-blue-light:#0066b1;--m-blue-dark:#1c69d4;--m-red:#e22718;
+--warning:#f4b400;--success:#0fa336;
+--xxs:4px;--xs:8px;--sm:12px;--md:16px;--lg:24px;--xl:40px;--xxl:64px;--section:96px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--canvas);color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{font-weight:300;font-size:16px;line-height:1.5;color:var(--body)}
+h1,h2,h3{font-weight:700;color:var(--ink);text-transform:uppercase;letter-spacing:-.5px;line-height:1.05}
+h1{font-size:56px}h2{font-size:32px}h3{font-size:20px;letter-spacing:0}
+.wrap{max-width:1440px;margin:0 auto;padding:0 var(--xl)}
+.mstripe{height:4px;width:100%;background:linear-gradient(90deg,var(--m-blue-light) 0 33.33%,var(--m-blue-dark) 33.33% 66.66%,var(--m-red) 66.66% 100%)}
+nav{height:64px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--hairline-strong)}
+.brand{display:flex;align-items:center;gap:var(--sm)}
+.brand .bars{display:flex;height:18px;width:24px}
+.brand .bars i{flex:1}
+.brand .bars i:nth-child(1){background:var(--m-blue-light)}
+.brand .bars i:nth-child(2){background:var(--m-blue-dark)}
+.brand .bars i:nth-child(3){background:var(--m-red)}
+.brand span{font-weight:700;font-size:14px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ink)}
+.navmeta{font-size:12px;letter-spacing:.5px;color:var(--muted);text-transform:uppercase}
+.lbl{font-size:14px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--ink)}
+.lbl-muted{font-size:12px;font-weight:400;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+.hero{padding:var(--xxl) 0}
+.hero p{font-size:18px;font-weight:300;color:var(--body);max-width:760px;margin-top:var(--md)}
+button,.btn{font-family:inherit;font-size:14px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+ height:48px;padding:0 32px;border-radius:0;border:1px solid var(--ink);background:transparent;color:var(--ink);cursor:pointer}
+button:disabled{border-color:var(--hairline);color:var(--muted);cursor:not-allowed}
+button.solid{background:var(--ink);color:#000}
+button.solid:disabled{background:var(--hairline-strong);color:var(--muted);border-color:var(--hairline-strong)}
+button.sm{height:36px;padding:0 var(--md);font-size:12px;letter-spacing:1px}
+section{padding:var(--xl) 0;border-top:1px solid var(--hairline-strong)}
+.grid2{display:grid;grid-template-columns:1.1fr .9fr;gap:var(--lg)}
+.card{background:var(--surface-card);padding:var(--lg);border-radius:0}
+.card.soft{background:var(--surface-soft)}
+.card.outline{background:transparent;border:1px solid var(--hairline)}
+.drop{border:1px dashed var(--hairline);padding:var(--xxl) var(--lg);text-align:center;background:var(--surface-soft)}
+.drop.over{border-color:var(--ink);background:var(--surface-card)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);
+ text-align:left;padding:var(--sm) var(--xs);border-bottom:1px solid var(--hairline)}
+td{padding:var(--sm) var(--xs);border-bottom:1px solid var(--hairline-strong);font-weight:300;color:var(--body)}
+td.num{text-align:right;font-variant-numeric:tabular-nums;color:var(--body-strong)}
+tr.sel td{background:var(--surface-elev);color:var(--ink)}
+tr.click{cursor:pointer}
+tr.click:active td{background:var(--surface-elev)}
+.pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border:1px solid}
+.p-high{border-color:var(--success);color:var(--success)}
+.p-med{border-color:var(--warning);color:var(--warning)}
+.p-none,.p-block{border-color:var(--m-red);color:var(--m-red)}
+.p-auto{border-color:var(--hairline);color:var(--muted)}
+.flag{display:flex;gap:var(--sm);padding:var(--sm) 0;border-bottom:1px solid var(--hairline-strong);font-size:14px}
+.flag b{font-size:11px;font-weight:700;letter-spacing:1px;flex:0 0 64px}
+.f-BLOCK b{color:var(--m-red)}.f-HIGH b{color:var(--warning)}.f-MED b{color:var(--muted)}
+canvas{width:100%;height:420px;background:var(--surface-soft);display:block}
+.specrow{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--hairline-strong)}
+.spec{background:var(--surface-soft);padding:var(--lg)}
+.spec .v{font-size:32px;font-weight:700;color:var(--ink);line-height:1.15}
+.spec .k{font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-top:var(--xs)}
+.row{display:flex;gap:var(--sm);flex-wrap:wrap;align-items:center}
+input[type=number],select{font-family:inherit;font-size:16px;font-weight:300;background:var(--surface-card);
+ color:var(--ink);border:1px solid var(--hairline);border-radius:0;height:48px;padding:0 var(--md);width:140px}
+.hide{display:none}
+.mono{font-variant-numeric:tabular-nums}
+.prov{font-size:12px;color:var(--muted);word-break:break-all}
+footer{padding:var(--xxl) 0;border-top:1px solid var(--hairline-strong);color:var(--muted);font-size:14px}
+
+.actions{display:flex;gap:var(--xs);flex-wrap:wrap;margin-top:var(--md)}
+.actions button{flex:1;min-width:96px;padding:0 var(--sm);height:44px;font-size:12px;letter-spacing:1px}
+button.ok{border-color:var(--success);color:var(--success)}
+button.warnb{border-color:var(--warning);color:var(--warning)}
+button.bad{border-color:var(--m-red);color:var(--m-red)}
+.editbox{margin-top:var(--md);padding:var(--md);background:var(--surface-elev);border-left:2px solid var(--warning)}
+.editbox input,.editbox textarea{width:100%;background:var(--surface-card);color:var(--ink);border:1px solid var(--hairline);
+ border-radius:0;font-family:inherit;font-weight:300;font-size:14px;padding:var(--sm);margin-top:var(--xs)}
+.editbox textarea{height:64px;resize:vertical}
+.auditrow{display:grid;grid-template-columns:110px 1fr;gap:var(--sm);padding:var(--sm) 0;border-bottom:1px solid var(--hairline-strong);font-size:13px}
+.auditrow b{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+.a-ACCEPTED b{color:var(--success)}.a-EDITED b{color:var(--warning)}
+.a-OVERRIDDEN b{color:var(--warning)}.a-REJECTED b{color:var(--m-red)}
+.progress{height:4px;background:var(--hairline-strong);margin:var(--md) 0}
+.progress i{display:block;height:100%;background:var(--ink)}
+.banner{padding:var(--md);border-left:2px solid var(--m-red);background:var(--surface-card);margin-bottom:var(--lg);font-size:14px}
+.banner.okb{border-left-color:var(--success)}
+.p-stale{border-color:var(--warning);color:var(--warning)}
+.p-ok{border-color:var(--success);color:var(--success)}
+tr.rejected td{opacity:.4;text-decoration:line-through}
+
+.tiercard{display:grid;grid-template-columns:120px 1fr;gap:var(--lg);padding:var(--lg);background:var(--surface-card)}
+.tierbadge{font-size:56px;font-weight:700;line-height:1;color:var(--ink)}
+.tierbadge small{display:block;font-size:11px;letter-spacing:1.5px;color:var(--muted);margin-top:var(--xs)}
+.tier-REFUSED .tierbadge{color:var(--m-red);font-size:32px}
+.tracerow{display:grid;grid-template-columns:180px 90px 1fr;gap:var(--sm);padding:var(--xs) 0;
+ border-bottom:1px solid var(--hairline-strong);font-size:13px;align-items:baseline}
+.tracerow b{font-weight:700;color:var(--ink);font-size:12px;letter-spacing:1px;text-transform:uppercase}
+.tracerow .ms{font-variant-numeric:tabular-nums;color:var(--m-blue-dark);font-weight:700}
+.tracerow .d{color:var(--muted)}
+.crops{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:var(--md)}
+.crop{background:var(--surface-card);padding:var(--md)}
+.crop img{width:100%;background:#fff;display:block;image-rendering:pixelated}
+.crop .nm{font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--ink);margin-top:var(--sm)}
+select.assign{width:100%;margin-top:var(--xs);height:40px;font-size:13px}
+.keyrow{display:flex;gap:var(--sm);flex-wrap:wrap;align-items:center;margin-bottom:var(--lg)}
+.keyrow input{flex:1;min-width:260px;height:48px;background:var(--surface-card);color:var(--ink);
+ border:1px solid var(--hairline);border-radius:0;padding:0 var(--md);font-family:inherit;font-weight:300}
+
+#rcv{width:100%;height:520px;background:var(--surface-soft);display:block;cursor:crosshair}
+.rtools{display:flex;gap:var(--xs);flex-wrap:wrap;align-items:center;margin-bottom:var(--md)}
+.rtools button.on{background:var(--ink);color:#000}
+.hint{font-size:13px;color:var(--warning);margin-top:var(--xs)}
+@media(max-width:1024px){.grid2{grid-template-columns:1fr}.specrow{grid-template-columns:repeat(2,1fr)}h1{font-size:40px}}
+@media(max-width:768px){.wrap{padding:0 var(--md)}.specrow{grid-template-columns:1fr}h1{font-size:32px}}
+</style>
+</head>
+<body>
+<div class="mstripe"></div>
+<div class="wrap">
+  <nav>
+    <div class="brand"><div class="bars"><i></i><i></i><i></i></div><span>Drawing&nbsp;→&nbsp;BOQ</span></div>
+    <div class="navmeta">Outlrs Labs · Prototype v0.1 · DXF only</div>
+  </nav>
+
+  <div class="hero">
+    <h1>Every number<br>traceable to the drawing.</h1>
+    <p>Upload a DXF. The geometry engine computes quantities deterministically and records the exact
+       entity handles behind each one. Nothing is estimated, nothing is inferred by a model, and any
+       quantity that cannot be measured is blocked rather than guessed.</p>
+    <div class="row" style="margin-top:var(--lg)">
+      <button class="solid" onclick="document.getElementById('file').click()">Upload DXF</button>
+      <button onclick="loadSample('clean')">Load clean sample</button>
+      <button onclick="loadSample('broken')">Load broken sample</button>
+      <input id="file" type="file" accept=".dxf,.pdf,.png,.jpg,.jpeg,.dwg" class="hide">
+    </div>
+  </div>
+
+  <section id="dropzone-sec">
+    <div class="drop" id="drop">
+      <div class="lbl">Drop a DXF file here</div>
+      <p style="margin-top:var(--xs);font-size:14px">DXF · PDF · PNG · JPG accepted. DWG is detected and refused with the measured reason.</p>
+    </div>
+  </section>
+
+  <div id="app" class="hide">
+
+    <!-- TIER -->
+    <section>
+      <div class="lbl-muted">Step 00</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Input routing</h2>
+      <div id="tier"></div>
+    </section>
+
+    <!-- CALIBRATION (tier B/C only) -->
+    <section id="calsec" class="hide">
+      <div class="lbl-muted">Step 00b</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Scale &amp; region assignment</h2>
+      <div id="rasterwrap" class="hide">
+        <div class="rtools">
+          <button id="btnCal" class="sm" onclick="setMode('cal')">1 · Set scale</button>
+          <button id="btnTrace" class="sm" onclick="setMode('trace')">2 · Trace region</button>
+          <button class="sm" onclick="detectRaster()">Detect with vision</button>
+          <button class="sm bad" onclick="clearRegions()">Clear regions</button>
+          <span class="lbl-muted" id="rstat" style="margin-left:auto"></span>
+        </div>
+        <canvas id="rcv"></canvas>
+        <div class="hint" id="rhint"></div>
+      </div>
+      <div id="cal"></div>
+    </section>
+
+    <!-- TRACE -->
+    <section>
+      <div class="lbl-muted">Backend</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Pipeline trace</h2>
+      <p style="font-size:14px;margin-bottom:var(--md)">Real stage timings and counts from this run — not a simulation.</p>
+      <div id="trace"></div>
+    </section>
+
+    <!-- SCALE GATE -->
+    <section>
+      <div class="lbl-muted">Step 01</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Scale gate</h2>
+      <div class="card outline" id="gate"></div>
+    </section>
+
+    <!-- MEASUREMENTS -->
+    <section>
+      <div class="lbl-muted">Step 02</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Deterministic measurement</h2>
+      <div class="specrow" id="specs"></div>
+      <div class="row" style="margin-top:var(--lg)">
+        <span class="lbl-muted">Wall height (m)</span>
+        <input type="number" id="wh" value="3.0" step="0.1" min="2" max="6" onchange="run()">
+        <span class="lbl-muted">Wall thickness (m)</span>
+        <input type="number" id="wt" value="0.23" step="0.01" min="0.05" max="0.6" onchange="run()">
+        <span class="lbl-muted" style="margin-left:auto">Operator parameters — not read from drawing</span>
+      </div>
+    </section>
+
+    <!-- PROVENANCE -->
+    <section>
+      <div class="lbl-muted">Step 03</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Provenance</h2>
+      <div class="grid2">
+        <div>
+          <canvas id="cv"></canvas>
+          <p style="font-size:12px;color:var(--muted);margin-top:var(--xs)">
+            Select any BOQ line below — the entities that produced its quantity highlight here.</p>
+        </div>
+        <div class="card">
+          <div class="lbl">Review</div>
+          <div class="mstripe" style="margin:var(--sm) 0 var(--md)"></div>
+          <div id="provbox"><p style="font-size:14px">Select a line from the bill below to review it.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FLAGS -->
+    <section>
+      <div class="lbl-muted">Step 04</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Checks</h2>
+      <div id="flags"></div>
+    </section>
+
+    <!-- VISION -->
+    <section>
+      <div class="lbl-muted">Step 04b</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Residual classification</h2>
+      <p style="font-size:14px;margin-bottom:var(--md)">
+        Two different things can be missing, and they are not the same: the <em>category</em> (&ldquo;is this furniture?&rdquo;), which a layer name can answer, and the <em>item</em> (&ldquo;which sofa?&rdquo;), which only the block name can. A clean layer plus a block called <span class="mono">Block_17</span> still counts correctly &mdash; but it cannot be priced. Each residual is rendered as a tight crop
+        and sent to the vision model, which may return a label and nothing else — quantities are never asked for
+        and any number in a reply is discarded before it reaches the pipeline.</p>
+      <div id="vision"></div>
+    </section>
+
+    <!-- BOQ -->
+    <section>
+      <div class="lbl-muted">Step 05</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Bill of quantities</h2>
+      <p style="font-size:14px;margin-bottom:var(--md)">Sorted by rupee impact, not drawing order. Rates are placeholders — in production these come from the studio's own library.</p>
+      <div class="row" style="margin-bottom:var(--md)">
+        <span class="lbl-muted">Reviewer</span>
+        <input id="reviewer" placeholder="Your name" oninput="renderBOQ()"
+          style="width:240px;height:48px;background:var(--surface-card);color:var(--ink);border:1px solid var(--hairline);border-radius:0;padding:0 var(--md);font-family:inherit;font-weight:300;font-size:16px">
+        <span class="lbl-muted" id="progtext" style="margin-left:auto"></span>
+      </div>
+      <div class="progress"><i id="progbar" style="width:0%"></i></div>
+      <table>
+        <thead><tr>
+          <th>Code</th><th>Description</th><th>Unit</th><th style="text-align:right">Qty</th>
+          <th style="text-align:right">Rate ₹</th><th style="text-align:right">Amount ₹</th>
+          <th>Conf</th><th>Review</th>
+        </tr></thead>
+        <tbody id="boq"></tbody>
+      </table>
+      <div class="row" style="margin-top:var(--lg);justify-content:flex-end">
+        <span class="lbl">Total</span>
+        <span class="mono" id="total" style="font-size:32px;font-weight:700;color:var(--ink)"></span>
+      </div>
+    </section>
+
+    <!-- AUDIT -->
+    <section>
+      <div class="lbl-muted">Step 06</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Audit trail</h2>
+      <p style="font-size:14px;margin-bottom:var(--md)">Append-only. A human decision is never overwritten — a later change supersedes it and both remain on record.</p>
+      <div id="audit"></div>
+    </section>
+
+    <!-- APPROVAL -->
+    <section>
+      <div class="lbl-muted">Step 07</div>
+      <h2 style="margin:var(--xs) 0 var(--lg)">Approval &amp; export</h2>
+      <div class="card" id="approve"></div>
+    </section>
+  </div>
+
+  <footer>
+    <div class="mstripe" style="margin-bottom:var(--lg)"></div>
+    <div class="lbl">Scope of this prototype</div>
+    <p style="margin-top:var(--xs);max-width:900px">
+      Single-storey residential / interior fit-out · architectural only. Inputs are tiered: DXF (A) carries
+      exact geometry and full semantics; vector PDF (B) carries geometry but no layers, blocks or hatch patterns;
+      raster (C) carries neither, so the operator sets scale from two picked points and either traces regions or confirms
+      boundaries the vision model proposes. On every tier the scale is human-supplied and no model output becomes a
+      quantity until a person confirms the geometry it rests on. DWG is detected and refused — see Step 00 for the
+      measured reason. MEP, structural, BIM and multi-storey aggregation remain out of scope and are refused
+      rather than approximated. Classification accuracy on real studio drawings is unmeasured — Phase 0 tests E0
+      and E1 remain open.</p>
+  </footer>
+</div>
+
+<script>
+/* Drawing-to-BOQ engine.
+   Deterministic. No model anywhere in this file.
+   Every quantity carries the DXF entity handles it came from. */
+(function (root) {
+  'use strict';
+
+  /* ---------------------------------------------------------- DXF parse */
+  function pairs(text) {
+    const lines = text.split(/\r\n|\r|\n/);
+    const out = [];
+    for (let i = 0; i + 1 < lines.length; i += 2) {
+      const c = parseInt(lines[i].trim(), 10);
+      if (Number.isNaN(c)) continue;
+      out.push([c, lines[i + 1]]);
+    }
+    return out;
+  }
+
+  function parseDXF(text) {
+    const P = pairs(text);
+    const doc = { insunitsInFile: false, insunits: null, layers: [], entities: [] };
+
+    // header
+    for (let i = 0; i < P.length; i++) {
+      if (P[i][0] === 9 && P[i][1].trim() === '$INSUNITS') {
+        doc.insunitsInFile = true;
+        for (let j = i + 1; j < Math.min(i + 6, P.length); j++) {
+          if (P[j][0] === 70) { doc.insunits = parseInt(P[j][1], 10); break; }
+        }
+        break;
+      }
+    }
+
+    // sections
+    doc.blocks = {};
+    let sec = null, i = 0, curBlock = null;
+    while (i < P.length) {
+      const [c, v] = P[i];
+      if (c === 0 && v.trim() === 'SECTION') { sec = (P[i + 1] || [])[1]; sec = sec && sec.trim(); i += 2; continue; }
+      if (c === 0 && v.trim() === 'ENDSEC') { sec = null; curBlock = null; i++; continue; }
+
+      // BLOCKS section: capture definition geometry so unresolved blocks can be cropped
+      if (sec === 'BLOCKS' && c === 0) {
+        const t = v.trim();
+        if (t === 'BLOCK') {
+          let j = i + 1, nm = null, bx = 0, by = 0;
+          while (j < P.length && P[j][0] !== 0) {
+            if (P[j][0] === 2 && nm === null) nm = P[j][1].trim();
+            if (P[j][0] === 10) bx = parseFloat(P[j][1]);
+            if (P[j][0] === 20) by = parseFloat(P[j][1]);
+            j++;
+          }
+          curBlock = nm; if (nm) doc.blocks[nm] = { name: nm, base: [bx, by], entities: [] };
+          i = j; continue;
+        }
+        if (t === 'ENDBLK') { curBlock = null; i++; continue; }
+        if (curBlock) {
+          let j = i + 1; const grp = [];
+          while (j < P.length && P[j][0] !== 0) { grp.push(P[j]); j++; }
+          const e = readEntity(t, grp);
+          if (e && doc.blocks[curBlock]) doc.blocks[curBlock].entities.push(e);
+          i = j; continue;
+        }
+      }
+
+      if (c === 0 && sec === 'TABLES' && v.trim() === 'LAYER') {
+        let j = i + 1, name = null;
+        while (j < P.length && P[j][0] !== 0) { if (P[j][0] === 2) { name = P[j][1].trim(); break; } j++; }
+        if (name) doc.layers.push(name);
+        i++; continue;
+      }
+
+      if (c === 0 && sec === 'ENTITIES') {
+        const type = v.trim();
+        let j = i + 1;
+        const grp = [];
+        while (j < P.length && P[j][0] !== 0) { grp.push(P[j]); j++; }
+        const e = readEntity(type, grp);
+        if (e) doc.entities.push(e);
+        i = j; continue;
+      }
+      i++;
+    }
+    return doc;
+  }
+
+  function readEntity(type, grp) {
+    const g = (code) => { for (const [c, v] of grp) if (c === code) return v.trim(); return null; };
+    const handle = g(5) || '';
+    const layer = g(8) || '0';
+    const base = { type, handle, layer };
+
+    if (type === 'LINE') {
+      return Object.assign(base, {
+        pts: [[+g(10), +g(20)], [+g(11), +g(21)]], closed: false
+      });
+    }
+    if (type === 'LWPOLYLINE') {
+      const pts = [];
+      let x = null;
+      for (const [c, v] of grp) {
+        if (c === 10) x = parseFloat(v);
+        else if (c === 20 && x !== null) { pts.push([x, parseFloat(v)]); x = null; }
+      }
+      const flag = parseInt(g(70) || '0', 10);
+      return Object.assign(base, { pts, closed: (flag & 1) === 1 });
+    }
+    if (type === 'HATCH') {
+      // boundary vertices are the 10/20 pairs that appear after the first 92
+      let started = false, x = null;
+      const pts = [];
+      for (const [c, v] of grp) {
+        if (c === 92) { started = true; continue; }
+        if (!started) continue;
+        if (c === 10) x = parseFloat(v);
+        else if (c === 20 && x !== null) { pts.push([x, parseFloat(v)]); x = null; }
+      }
+      return Object.assign(base, { pts, closed: true, pattern: g(2) || '' });
+    }
+    if (type === 'INSERT') {
+      return Object.assign(base, { block: g(2) || '', pos: [+g(10), +g(20)], pts: [] });
+    }
+    if (type === 'TEXT' || type === 'MTEXT') {
+      return Object.assign(base, { text: g(1) || '', pos: [+g(10), +g(20)], pts: [] });
+    }
+    return null;
+  }
+
+  /* ------------------------------------------------------------ geometry */
+  function shoelace(pts) {
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+      a += x1 * y2 - x2 * y1;
+    }
+    return Math.abs(a) / 2;
+  }
+  function perimeter(pts) {
+    let p = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+      p += Math.hypot(x2 - x1, y2 - y1);
+    }
+    return p;
+  }
+
+  /* ------------------------------------------------- signal 1: layer name */
+  function layerCategory(name) {
+    const u = String(name).toUpperCase();
+    if (u.includes('WALL')) return 'wall';
+    if (u.includes('ROOM')) return 'room';
+    if (u.includes('DOOR')) return 'door';
+    if (u.includes('GLAZ') || u.includes('WIN')) return 'window';
+    if (u.includes('FURN')) return 'furniture';
+    if (u === '0' || u === 'DEFPOINTS') return 'ignore';
+    return null;
+  }
+
+  /* ------------------------------------------------- signal 2: block name */
+  function blockCategory(name) {
+    const u = String(name).toUpperCase();
+    if (u.startsWith('DOOR')) return 'door';
+    if (u.startsWith('WIN')) return 'window';
+    if (['SOFA', 'BED', 'TABLE', 'WARDROBE', 'CHAIR', 'DESK'].some(p => u.startsWith(p))) return 'furniture';
+    return null;
+  }
+
+  /* --------------------------------------------------------- scale gate */
+  const UNIT_NAME = { 1: 'inches', 2: 'feet', 4: 'millimetres', 5: 'centimetres', 6: 'metres' };
+  const TO_M = { 1: 0.0254, 2: 0.3048, 4: 0.001, 5: 0.01, 6: 1.0 };
+
+  function scaleGate(doc) {
+    if (!doc.insunitsInFile) {
+      return { ok: false, code: null, reason: 'no $INSUNITS present in file - a parser default is not evidence' };
+    }
+    if (!doc.insunits) {
+      return { ok: false, code: 0, reason: '$INSUNITS is 0 (unitless)' };
+    }
+    if (!TO_M[doc.insunits]) {
+      return { ok: false, code: doc.insunits, reason: 'unsupported unit code ' + doc.insunits };
+    }
+    return { ok: true, code: doc.insunits, unit: UNIT_NAME[doc.insunits], toM: TO_M[doc.insunits], reason: 'declared in file' };
+  }
+
+  /* ------------------------------------------------------------ measure */
+  function measure(doc, opts) {
+    opts = opts || {};
+    const gate = scaleGate(doc);
+    const res = { gate, measurements: [], flags: [], unresolvedLayers: [], assumptions: [] };
+    if (!gate.ok && !opts.forceUnit) return res;
+
+    const toM = gate.ok ? gate.toM : TO_M[opts.forceUnit];
+    if (!gate.ok) res.assumptions.push('Unit forced to ' + UNIT_NAME[opts.forceUnit] + ' by operator');
+    res.toM = toM;
+
+    const wallH = opts.wallHeight || 3.0;
+    res.assumptions.push('Wall height ' + wallH.toFixed(2) + ' m (not in drawing - operator parameter)');
+
+    // layer classification
+    const cat = {};
+    for (const L of doc.layers) {
+      const c = layerCategory(L);
+      if (c === null) res.unresolvedLayers.push(L);
+      else if (c !== 'ignore') cat[L] = c;
+    }
+
+    const add = (key, label, value, unit, handles, signals, note) => {
+      res.measurements.push({
+        key, label, value, unit, handles,
+        signals, confidence: conf(signals),
+        status: value > 0 ? 'measured' : (handles.length ? 'measured_zero' : 'not_measurable'),
+        note: note || ''
+      });
+    };
+
+    // walls via hatch
+    let wallArea = 0; const wallH_ids = [];
+    let wallPolyLen = 0; const wallPolyIds = [];
+    for (const e of doc.entities) {
+      if (cat[e.layer] !== 'wall') continue;
+      if (e.type === 'HATCH' && e.pts.length >= 3) { wallArea += shoelace(e.pts); wallH_ids.push(e.handle); }
+      if (e.type === 'LWPOLYLINE' && e.pts.length >= 3) { wallPolyLen += perimeter(e.pts); wallPolyIds.push(e.handle); }
+    }
+    const wallPlanM2 = wallArea * toM * toM;
+    const thickness = opts.wallThickness || 0.23;
+    const centreLen = wallPlanM2 > 0 ? wallPlanM2 / thickness : 0;
+
+    add('wall_plan', 'Wall footprint (plan)', wallPlanM2, 'm²', wallH_ids,
+      wallH_ids.length ? ['layer', 'hatch'] : []);
+    add('wall_masonry', 'Wall masonry volume', wallPlanM2 * wallH, 'm³', wallH_ids,
+      wallH_ids.length ? ['layer', 'hatch'] : [], 'plan area × wall height');
+    add('wall_plaster', 'Wall plaster (both faces)', centreLen * 2 * wallH, 'm²', wallH_ids,
+      wallH_ids.length ? ['layer', 'hatch'] : [],
+      'centreline ' + centreLen.toFixed(2) + ' m derived from footprint ÷ ' + thickness + ' m thickness');
+
+    // rooms
+    let floor = 0, perim = 0; const roomIds = []; const rooms = [];
+    for (const e of doc.entities) {
+      if (cat[e.layer] !== 'room') continue;
+      if (e.type === 'LWPOLYLINE' && e.pts.length >= 3) {
+        const a = shoelace(e.pts) * toM * toM;
+        floor += a; perim += perimeter(e.pts) * toM;
+        roomIds.push(e.handle);
+        rooms.push({ handle: e.handle, area: a });
+      }
+    }
+    res.rooms = rooms;
+    add('floor_area', 'Floor finish area', floor, 'm²', roomIds, roomIds.length ? ['layer', 'geometry'] : []);
+    add('skirting', 'Skirting length', perim, 'm', roomIds, roomIds.length ? ['layer', 'geometry'] : []);
+    add('room_count', 'Room count', rooms.length, 'nos', roomIds, roomIds.length ? ['layer', 'geometry'] : []);
+
+    // counts from blocks
+    const byCat = {}, idsByCat = {}, byBlock = {};
+    for (const e of doc.entities) {
+      if (e.type !== 'INSERT') continue;
+      const bc = blockCategory(e.block);
+      const lc = cat[e.layer] || null;
+      const c = bc || lc;
+      if (!c) continue;
+      byCat[c] = (byCat[c] || 0) + 1;
+      (idsByCat[c] = idsByCat[c] || []).push(e.handle);
+      byBlock[e.block] = byBlock[e.block] || { n: 0, cat: c, handles: [], signals: sig(bc, lc) };
+      byBlock[e.block].n++;
+      byBlock[e.block].handles.push(e.handle);
+    }
+    res.byBlock = byBlock;
+
+    for (const [c, label] of [['door', 'Doors'], ['window', 'Windows'], ['furniture', 'Furniture items']]) {
+      const ids = idsByCat[c] || [];
+      add(c + '_count', label, byCat[c] || 0, 'nos', ids, ids.length ? ['block', 'layer'] : []);
+    }
+
+    // exploded geometry on furniture layers = unclassifiable
+    let exploded = 0; const expIds = [];
+    for (const e of doc.entities) {
+      if (cat[e.layer] === 'furniture' && e.type === 'LWPOLYLINE') { exploded++; expIds.push(e.handle); }
+    }
+    res.exploded = { n: exploded, handles: expIds };
+
+    /* -------------------------------------------------------- sanity */
+    const F = res.flags;
+    // ABSENCE checks - a zero is not a measurement
+    for (const m of res.measurements) {
+      if (['wall_plan', 'floor_area', 'room_count'].includes(m.key) && m.value === 0) {
+        F.push({ sev: 'BLOCK', msg: m.label + ' returned ZERO - not measured, not zero. Export blocked.' });
+      }
+    }
+    if (floor > 0 && wallPlanM2 > 0) {
+      const r = (centreLen * 2 * wallH) / floor;
+      // small units legitimately run higher (more wall per m2 of floor)
+      const hi = floor < 25 ? 9 : 6;
+      if (r < 1.5 || r > hi) F.push({ sev: 'HIGH', msg: 'plaster:floor ratio ' + r.toFixed(1) + ' outside plausible 1.5-' + hi + ' - CALIBRATION: band needs real drawings' });
+    }
+    if (floor > 500) F.push({ sev: 'HIGH', msg: 'floor area ' + floor.toFixed(0) + ' m² implausible for a residential unit - likely unit/scale error' });
+    for (const r of rooms) {
+      if (r.area > 60) { F.push({ sev: 'HIGH', msg: 'room of ' + r.area.toFixed(0) + ' m² exceeds residential band (>60 m²)' }); break; }
+    }
+    if (exploded) F.push({ sev: 'MED', msg: exploded + ' unclassifiable region(s) on a furniture layer - drawn as geometry, not blocks' });
+    if (res.unresolvedLayers.length) F.push({ sev: 'MED', msg: res.unresolvedLayers.length + ' layer(s) unresolved by rules: ' + res.unresolvedLayers.slice(0, 4).join(', ') });
+    if (!wallH_ids.length) F.push({ sev: 'HIGH', msg: 'no wall hatch found - wall area cannot be measured from this drawing' });
+
+    return res;
+  }
+
+  function sig(bc, lc) { const s = []; if (bc) s.push('block'); if (lc) s.push('layer'); return s; }
+  function conf(signals) {
+    const n = signals.length;
+    if (n >= 2) return 'HIGH';
+    if (n === 1) return 'MED';
+    return 'NONE';
+  }
+
+  /* ---------------------------------------------------------- BOQ build */
+  const DEFAULT_RATES = [
+    { key: 'wall_masonry', code: 'CIV-01', desc: '230mm brick masonry in CM 1:6', unit: 'm³', rate: 6800 },
+    { key: 'wall_plaster', code: 'CIV-02', desc: '12mm cement plaster, internal faces', unit: 'm²', rate: 285 },
+    { key: 'floor_area', code: 'FIN-01', desc: 'Vitrified tile flooring, laid & polished', unit: 'm²', rate: 1450 },
+    { key: 'skirting', code: 'FIN-02', desc: '100mm skirting to match flooring', unit: 'm', rate: 220 },
+    { key: 'door_count', code: 'JOI-01', desc: 'Flush door shutter with frame & hardware', unit: 'nos', rate: 12500 },
+    { key: 'window_count', code: 'JOI-02', desc: 'Aluminium glazed window unit', unit: 'nos', rate: 9800 },
+    { key: 'furniture_count', code: 'FUR-01', desc: 'Loose furniture item (provisional)', unit: 'nos', rate: 18000 }
+  ];
+
+  function buildBOQ(meas, rates) {
+    rates = rates || DEFAULT_RATES;
+    const lines = [];
+    for (const r of rates) {
+      const m = meas.measurements.find(x => x.key === r.key);
+      if (!m) continue;
+      const qty = m.value;
+      const amount = qty * r.rate;
+      lines.push({
+        code: r.code, desc: r.desc, unit: r.unit, qty, rate: r.rate, amount,
+        confidence: m.confidence, status: m.status, handles: m.handles,
+        note: m.note, key: r.key
+      });
+    }
+    // review routing: confidence + money at risk
+    const total = lines.reduce((s, l) => s + l.amount, 0);
+    const sorted = [...lines].sort((a, b) => b.amount - a.amount);
+    const top10 = new Set(sorted.slice(0, 10).map(l => l.code));
+    for (const l of lines) {
+      l.moneyAtRisk = l.amount;
+      if (l.status !== 'measured') l.review = 'BLOCKED';
+      else if (l.confidence === 'NONE' || l.confidence === 'MED') l.review = 'REQUIRED';
+      else if (top10.has(l.code) && l.amount > total * 0.15) l.review = 'SPOT_CHECK';
+      else l.review = 'AUTO';
+    }
+    return { lines, total };
+  }
+
+  const API = {
+    parseDXF, measure, buildBOQ, scaleGate, shoelace, perimeter,
+    layerCategory, blockCategory, DEFAULT_RATES, UNIT_NAME, TO_M
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = API;
+  root.BOQ = API;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+</script>
+<script>
+/* Multi-format ingest router.
+   Produces a Normalized Drawing Model (NDM) that the measurement engine consumes.
+   Tier A = DXF (exact geometry + semantics)
+   Tier B = vector PDF (exact geometry, NO layer/block semantics)
+   Tier C = raster (no geometry at all - human calibrates and traces)
+   DWG    = refused. See refuseDWG() for the measured reason. */
+(function (root) {
+  'use strict';
+
+  /* ------------------------------------------------------------ sniffing */
+  const DWG_VERSIONS = {
+    AC1009: 'R11/R12', AC1012: 'R13', AC1014: 'R14', AC1015: 'AutoCAD 2000',
+    AC1018: 'AutoCAD 2004', AC1021: 'AutoCAD 2007', AC1024: 'AutoCAD 2010',
+    AC1027: 'AutoCAD 2013', AC1032: 'AutoCAD 2018'
+  };
+
+  function sniff(bytes, filename) {
+    const head = new TextDecoder('latin1').decode(bytes.slice(0, 8));
+    if (head.startsWith('AC10')) {
+      const code = head.slice(0, 6);
+      return { kind: 'dwg', version: code, versionName: DWG_VERSIONS[code] || 'unknown release' };
+    }
+    if (head.startsWith('%PDF')) return { kind: 'pdf', version: head.slice(5, 8) };
+    if (bytes[0] === 0x89 && bytes[1] === 0x50) return { kind: 'raster', format: 'PNG' };
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8) return { kind: 'raster', format: 'JPEG' };
+    const txt = new TextDecoder('latin1').decode(bytes.slice(0, 2048));
+    if (/\bSECTION\b/.test(txt) && /\b(HEADER|ENTITIES|TABLES)\b/.test(txt)) return { kind: 'dxf' };
+    if (/\.dxf$/i.test(filename || '')) return { kind: 'dxf' };
+    return { kind: 'unknown' };
+  }
+
+  /* -------------------------------------------------------------- DWG */
+  function refuseDWG(info) {
+    return {
+      tier: 'REFUSED', kind: 'dwg', version: info.version, versionName: info.versionName,
+      reason: 'Binary DWG is not accepted.',
+      evidence: [
+        'DWG is a closed binary format. Reading it needs either Autodesk RealDWG / APS (commercial licence) or a reimplementation.',
+        'We measured the free route on 6 real DWG files: 4 failed outright, and the 2 that "converted successfully" were silently corrupted.',
+        'Unit code was rewritten inches -> metres (39x scale error). Every entity lost its layer link. Block definitions vanished. 77 hatch boundaries across a 2.7M sq-unit plan collapsed to 16.7 sq units.',
+        'None of that throws an error. The file opens and the numbers look like numbers - which is exactly the failure this system exists to prevent.'
+      ],
+      fix: 'In AutoCAD: File -> Save As -> AutoCAD DXF (*.dxf). One action, and the geometry arrives exact.'
+    };
+  }
+
+  /* -------------------------------------------------------------- PDF */
+  async function inflate(bytes) {
+    if (typeof DecompressionStream === 'undefined') throw new Error('no DecompressionStream');
+    for (const fmt of ['deflate', 'deflate-raw']) {
+      try {
+        const ds = new DecompressionStream(fmt);
+        const s = new Blob([bytes]).stream().pipeThrough(ds);
+        return new Uint8Array(await new Response(s).arrayBuffer());
+      } catch (e) { /* try next */ }
+    }
+    throw new Error('inflate failed');
+  }
+
+  async function extractPDFStreams(bytes) {
+    const latin = new TextDecoder('latin1').decode(bytes);
+    const out = [];
+    const re = /stream\r?\n?/g;
+    let m;
+    while ((m = re.exec(latin)) !== null) {
+      // 'endstream' also contains 'stream' - skip those
+      if (latin.slice(Math.max(0, m.index - 3), m.index) === 'end') continue;
+      const start = m.index + m[0].length;
+      const end = latin.indexOf('endstream', start);
+      if (end < 0) continue;
+      const dictStart = Math.max(0, latin.lastIndexOf('<<', m.index));
+      const dict = latin.slice(dictStart, m.index);
+
+      // prefer the declared /Length; the bytes between data and 'endstream'
+      // include an EOL that makes strict inflaters reject the stream
+      const lm = /\/Length\s+(\d+)/.exec(dict);
+      let hi = end;
+      if (lm) hi = Math.min(end, start + parseInt(lm[1], 10));
+      while (hi > start && (bytes[hi - 1] === 10 || bytes[hi - 1] === 13)) hi--;
+
+      let raw = bytes.slice(start, hi);
+      if (/FlateDecode/.test(dict)) {
+        let done = null;
+        for (const cut of [0, 1, 2]) {
+          try { done = await inflate(bytes.slice(start, hi - cut)); break; } catch (e) { /* next */ }
+        }
+        if (!done) continue;
+        raw = done;
+      } else if (/DCTDecode|JPXDecode|CCITTFaxDecode/.test(dict)) {
+        out.push({ image: true, dict }); continue;
+      }
+      out.push({ text: new TextDecoder('latin1').decode(raw), dict });
+    }
+    return out;
+  }
+
+  /* content-stream operator walk: re, m, l, c, h, cm, q, Q */
+  function parseContent(src) {
+    const toks = src.replace(/[\r\n]+/g, ' ').split(/\s+/).filter(Boolean);
+    const paths = [];
+    let stack = [], ctm = [1, 0, 0, 1, 0, 0], nums = [], cur = null, start = null;
+    const T = (p) => [ctm[0] * p[0] + ctm[2] * p[1] + ctm[4], ctm[1] * p[0] + ctm[3] * p[1] + ctm[5]];
+    const flush = (closed) => { if (cur && cur.length > 1) paths.push({ pts: cur, closed: !!closed }); cur = null; };
+
+    for (const t of toks) {
+      const n = parseFloat(t);
+      if (!Number.isNaN(n) && /^[-+.\d]/.test(t)) { nums.push(n); continue; }
+      switch (t) {
+        case 'q': stack.push(ctm.slice()); break;
+        case 'Q': ctm = stack.pop() || [1, 0, 0, 1, 0, 0]; break;
+        case 'cm': {
+          const a = nums.slice(-6);
+          if (a.length === 6) {
+            ctm = [
+              a[0] * ctm[0] + a[1] * ctm[2], a[0] * ctm[1] + a[1] * ctm[3],
+              a[2] * ctm[0] + a[3] * ctm[2], a[2] * ctm[1] + a[3] * ctm[3],
+              a[4] * ctm[0] + a[5] * ctm[2] + ctm[4], a[4] * ctm[1] + a[5] * ctm[3] + ctm[5]
+            ];
+          }
+          break;
+        }
+        case 're': {
+          const a = nums.slice(-4);
+          if (a.length === 4) {
+            const [x, y, w, hh] = a;
+            paths.push({ pts: [T([x, y]), T([x + w, y]), T([x + w, y + hh]), T([x, y + hh])], closed: true });
+          }
+          break;
+        }
+        case 'm': { flush(false); const a = nums.slice(-2); cur = [T(a)]; start = T(a); break; }
+        case 'l': { const a = nums.slice(-2); if (cur) cur.push(T(a)); break; }
+        case 'c': { const a = nums.slice(-6); if (cur && a.length === 6) cur.push(T([a[4], a[5]])); break; }
+        case 'v': case 'y': { const a = nums.slice(-4); if (cur && a.length === 4) cur.push(T([a[2], a[3]])); break; }
+        case 'h': { if (cur && start) cur.push(start); flush(true); break; }
+        case 'f': case 'F': case 'f*': case 'B': case 'B*': case 'b': case 'b*': flush(true); break;
+        case 'S': case 's': case 'n': flush(t === 's'); break;
+      }
+      if (!/^[-+.\d]/.test(t)) nums = [];
+    }
+    flush(false);
+    return paths;
+  }
+
+  async function ingestPDF(bytes) {
+    const streams = await extractPDFStreams(bytes);
+    const imageOnly = streams.length > 0 && streams.every(s => s.image);
+    let paths = [];
+    for (const s of streams) if (s.text) paths = paths.concat(parseContent(s.text));
+    paths = paths.filter(p => p.pts.length > 1);
+
+    if (!paths.length) {
+      return {
+        tier: 'C', kind: 'pdf', paths: [],
+        note: imageOnly
+          ? 'This PDF contains only a scanned image - no vector content streams.'
+          : 'No vector paths could be extracted from this PDF.',
+        needsCalibration: true
+      };
+    }
+    return {
+      tier: 'B', kind: 'pdf', paths,
+      note: paths.length + ' vector path(s) recovered. Geometry is exact in PDF points, but PDF carries no layers, blocks or hatch patterns - so every classification signal we normally use is gone.',
+      needsCalibration: true
+    };
+  }
+
+  /* ----------------------------------------------------------- raster */
+  function ingestRaster(info) {
+    return {
+      tier: 'C', kind: 'raster', format: info.format, paths: [],
+      note: 'A raster image carries no geometry at all. Nothing can be measured from it automatically - the operator sets scale from a known dimension, then traces regions. The arithmetic is still deterministic; the geometry is human-supplied.',
+      needsCalibration: true
+    };
+  }
+
+  /* ------------------------------------------------- convert to entities */
+  /* Tier B/C paths become entities with NO layer semantics - they are
+     deliberately marked unclassified so they route to human review. */
+  function pathsToEntities(paths, prefix) {
+    return paths.map((p, i) => ({
+      type: 'LWPOLYLINE', handle: (prefix || 'P') + i, layer: '(no layer - from ' + (prefix === 'R' ? 'trace' : 'PDF') + ')',
+      pts: p.pts, closed: p.closed, unclassified: true
+    }));
+  }
+
+  async function ingest(bytes, filename) {
+    const info = sniff(bytes, filename);
+    if (info.kind === 'dwg') return refuseDWG(info);
+    if (info.kind === 'pdf') return await ingestPDF(bytes);
+    if (info.kind === 'raster') return ingestRaster(info);
+    if (info.kind === 'dxf') return { tier: 'A', kind: 'dxf', text: new TextDecoder('latin1').decode(bytes) };
+    return { tier: 'REFUSED', kind: 'unknown', reason: 'Unrecognised file format.', evidence: ['Accepted: DXF (Tier A), PDF (Tier B/C), PNG/JPEG (Tier C).'], fix: 'Export the drawing as DXF for exact geometry.' };
+  }
+
+  const API = { sniff, ingest, ingestPDF, ingestRaster, refuseDWG, parseContent, extractPDFStreams, pathsToEntities, DWG_VERSIONS };
+  if (typeof module !== 'undefined' && module.exports) module.exports = API;
+  root.INGEST = API;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+</script>
+<script>
+/* Vision fallback.
+   Runs ONLY on entities the deterministic rules could not classify.
+   Contract: the model returns a LABEL. It never returns, and this module
+   never accepts, a quantity, dimension, area or price. */
+(function (root) {
+  'use strict';
+
+  const ONTOLOGY = ['SOFA', 'BED', 'TABLE', 'CHAIR', 'CABINET', 'WARDROBE',
+    'WC', 'BASIN', 'DOOR', 'WINDOW', 'STAIR', 'KITCHEN_UNIT', 'UNKNOWN'];
+
+  const CATEGORY_OF = {
+    SOFA: 'furniture', BED: 'furniture', TABLE: 'furniture', CHAIR: 'furniture',
+    CABINET: 'furniture', WARDROBE: 'furniture', KITCHEN_UNIT: 'furniture',
+    WC: 'fixture', BASIN: 'fixture', DOOR: 'door', WINDOW: 'window',
+    STAIR: 'stair', UNKNOWN: null
+  };
+
+  /* ---------------------------------------------------- residual finder */
+  /* Two different things can be unresolved, and conflating them is a mistake:
+
+     CATEGORY  - "is this furniture at all?"  Layer name can answer this.
+     ITEM      - "which furniture is it?"     Only the block name answers this.
+
+     A drawing with a clean A-FURN layer and a block called Block_17 gives you
+     a correct COUNT (the layer voted) but no ITEM identity - so it cannot be
+     priced or matched to a vendor product. That is still a residual, and it is
+     the common case in real drawings. */
+  function residuals(doc, layerCategory, blockCategory) {
+    const out = [];
+    for (const e of doc.entities) {
+      if (e.type === 'INSERT') {
+        const lcRaw = layerCategory(e.layer);
+        const lc = (lcRaw === 'ignore') ? null : lcRaw;
+        const bc = blockCategory(e.block);
+        if (bc === null) {
+          out.push({
+            ref: e, kind: 'block', label: e.block, layer: e.layer,
+            categoryKnown: lc,                       // may be non-null from the layer
+            missing: lc ? 'item' : 'category+item'
+          });
+        }
+      } else if (e.unclassified && e.pts && e.pts.length > 2) {
+        out.push({
+          ref: e, kind: 'region', label: 'region ' + e.handle, layer: e.layer,
+          categoryKnown: null, missing: 'category+item'
+        });
+      }
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------- crop render */
+  function geometryFor(doc, item) {
+    if (item.kind === 'region') return [item.ref.pts];
+    const b = (doc.blocks || {})[item.ref.block];
+    if (!b) return [];
+    const [ox, oy] = item.ref.pos;
+    const [bx, by] = b.base || [0, 0];
+    const polys = [];
+    for (const e of b.entities) {
+      if (e.pts && e.pts.length > 1) polys.push(e.pts.map(p => [p[0] - bx + ox, p[1] - by + oy]));
+    }
+    return polys;
+  }
+
+  /* Renders ONLY the object, tightly cropped, at fixed pixel size.
+     No dimensions, no annotation, no scale bar - nothing the model could
+     read a number off and echo back. */
+  function renderCrop(doc, item, size) {
+    size = size || 256;
+    const polys = geometryFor(doc, item);
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, size, size);
+    if (!polys.length) return { dataUrl: cv.toDataURL('image/png'), empty: true };
+
+    let xs = [], ys = [];
+    for (const p of polys) for (const q of p) { xs.push(q[0]); ys.push(q[1]); }
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const pad = size * 0.12;
+    const s = Math.min((size - pad * 2) / ((maxX - minX) || 1), (size - pad * 2) / ((maxY - minY) || 1));
+    const ox = (size - (maxX - minX) * s) / 2, oy = (size - (maxY - minY) * s) / 2;
+    g.strokeStyle = '#000'; g.lineWidth = 2; g.lineJoin = 'round';
+    for (const p of polys) {
+      g.beginPath();
+      p.forEach((q, i) => {
+        const X = ox + (q[0] - minX) * s, Y = size - (oy + (q[1] - minY) * s);
+        i ? g.lineTo(X, Y) : g.moveTo(X, Y);
+      });
+      g.stroke();
+    }
+    return { dataUrl: cv.toDataURL('image/png'), empty: false };
+  }
+
+  /* ------------------------------------------------------- the API call */
+  const PROMPT =
+    'You are looking at a single symbol cropped from an architectural floor plan, drawn in plan view (from above).\n' +
+    'Identify what the symbol represents.\n' +
+    'Reply with EXACTLY ONE word from this list and nothing else:\n' +
+    ONTOLOGY.join(' | ') + '\n' +
+    'If you are not confident, reply UNKNOWN. Do not explain. Do not give dimensions, ' +
+    'quantities, areas or prices - those are computed elsewhere and any number you supply will be discarded.';
+
+  /* Structural guarantee: whatever comes back, we keep only a label that
+     exists in the ontology. Numbers cannot survive this function. */
+  function coerceLabel(raw) {
+    const up = String(raw || '').toUpperCase();
+    for (const t of ONTOLOGY) {
+      if (new RegExp('\\b' + t + '\\b').test(up)) return t;
+    }
+    return 'UNKNOWN';
+  }
+
+  const BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+  /* Preference order, newest first. This is a FALLBACK CHAIN, not a hardcoded
+     model: listModels() is authoritative when a key is present. Hardcoding one
+     name is what broke this integration the first time - gemini-2.0-flash was
+     retired on 31 March 2026 and every call 404'd. */
+  const PREFERRED = [
+    'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash',
+    'gemini-3-flash', 'gemini-2.5-flash'
+  ];
+
+  /* Ask the API what actually exists rather than guessing. */
+  async function listModels(apiKey) {
+    if (!apiKey) return { models: [], note: 'No key - cannot query available models.' };
+    try {
+      const r = await fetch(BASE + '/models', { headers: { 'x-goog-api-key': apiKey } });
+      if (!r.ok) return { models: [], note: 'models list failed: HTTP ' + r.status };
+      const j = await r.json();
+      const usable = (j.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map(m => String(m.name || '').replace(/^models\//, ''))
+        .filter(n => !/embedding|aqa|imagen|tts|veo|robotics|native-audio/i.test(n));
+      // rank by preference, then newest-looking version number, then name
+      const ver = n => { const m = /(\d+(?:\.\d+)?)/.exec(n); return m ? parseFloat(m[1]) : 0; };
+      usable.sort((a, b) => {
+        const pa = PREFERRED.indexOf(a), pb = PREFERRED.indexOf(b);
+        if (pa !== -1 || pb !== -1) return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb);
+        if (ver(b) !== ver(a)) return ver(b) - ver(a);
+        return a.localeCompare(b);
+      });
+      return { models: usable, note: usable.length + ' model(s) support generateContent' };
+    } catch (e) {
+      return { models: [], note: String(e.message || e) };
+    }
+  }
+
+  async function classify(dataUrl, context, apiKey, model) {
+    const t0 = performance.now();
+    if (!apiKey) {
+      return {
+        label: 'UNKNOWN', source: 'stub', ms: 0,
+        note: 'No API key set - vision is stubbed. The pipeline runs without it; every residual simply routes to a human.'
+      };
+    }
+    const b64 = dataUrl.split(',')[1];
+    const ctx = 'Drawing context (for disambiguation only): block name "' +
+      (context.label || '?') + '", layer "' + (context.layer || '?') + '".';
+    // key travels in a header, never in the URL query string
+    const candidates = model ? [model] : PREFERRED;
+    let lastErr = null;
+    for (const cand of candidates) {
+      const out = await callOne(cand, b64, ctx, apiKey, t0);
+      if (out.source !== 'error') return out;
+      lastErr = out;
+      // only walk the chain on "model does not exist" style failures
+      if (!/404|not found|not available|NOT_FOUND|unsupported/i.test(out.note || '')) break;
+    }
+    return lastErr || { label: 'UNKNOWN', source: 'error', ms: 0, note: 'no candidate model succeeded' };
+  }
+
+  async function callOne(model, b64, ctx, apiKey, t0) {
+    const url = BASE + '/models/' + model + ':generateContent';
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: PROMPT + '\n' + ctx },
+              { inline_data: { mime_type: 'image/png', data: b64 } }
+            ]
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 16 }
+        })
+      });
+      const ms = Math.round(performance.now() - t0);
+      if (!r.ok) {
+        const t = await r.text();
+        return { label: 'UNKNOWN', source: 'error', ms, model,
+                 note: 'API ' + r.status + ' on ' + model + ': ' + t.slice(0, 160) };
+      }
+      const j = await r.json();
+      const raw = (((j.candidates || [])[0] || {}).content || {}).parts?.[0]?.text || '';
+      const label = coerceLabel(raw);
+      return {
+        label, source: 'gemini', ms, raw: raw.trim(), model,
+        note: label === 'UNKNOWN' ? 'Model was not confident, or replied outside the ontology.' : ''
+      };
+    } catch (e) {
+      return { label: 'UNKNOWN', source: 'error', model, ms: Math.round(performance.now() - t0), note: String(e.message || e) };
+    }
+  }
+
+  /* ------------------------------------------------- raster region detect */
+  /* Tier C only. There is no geometry in a raster, so a proposal is the only
+     way a machine can contribute. Two hard limits keep this honest:
+       1. The model proposes BOUNDARIES, never a scale. Pixels become metres
+          only through a figure a human typed, so no quantity can originate here.
+       2. Every proposed region is marked 'proposed' and must be confirmed by a
+          human before it can enter a BOQ line. */
+  const RASTER_CLASSES = ['ROOM', 'WALL', 'DOOR', 'WINDOW', 'SOFA', 'BED', 'TABLE',
+    'CHAIR', 'WARDROBE', 'CABINET', 'WC', 'BASIN', 'KITCHEN_UNIT', 'STAIR'];
+
+  const RASTER_PROMPT =
+    'This is an architectural floor plan drawing (plan view, from above).\n' +
+    'Detect the 2D bounding boxes of the rooms and the fixed/loose furniture items you can identify.\n' +
+    'Return ONLY a JSON array. Each entry must have exactly two keys:\n' +
+    '  "box_2d": [ymin, xmin, ymax, xmax] normalized to 0-1000\n' +
+    '  "label" : one of ' + RASTER_CLASSES.join(', ') + '\n' +
+    'Never return masks. Limit to 25 objects. Do not output areas, dimensions, ' +
+    'scales, quantities or prices - any such value will be discarded. ' +
+    'Do not guess the drawing scale; a human supplies it.';
+
+  function parseBoxes(raw, imgW, imgH) {
+    let txt = String(raw || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    let arr = null;
+    try { arr = JSON.parse(txt); } catch (e) {
+      const m = /\[[\s\S]*\]/.exec(txt);
+      if (m) { try { arr = JSON.parse(m[0]); } catch (e2) { } }
+    }
+    if (arr && !Array.isArray(arr)) arr = arr.boxes || arr.objects || null;
+    if (!Array.isArray(arr)) return [];
+    const out = [];
+    for (const it of arr) {
+      const b = it && (it.box_2d || it.box || it.bbox);
+      if (!Array.isArray(b) || b.length < 4) continue;
+      const [y0, x0, y1, x1] = b.map(Number);
+      if ([y0, x0, y1, x1].some(v => !isFinite(v))) continue;
+      // normalized 0-1000, y first, top-left origin
+      const X0 = Math.min(x0, x1) / 1000 * imgW, X1 = Math.max(x0, x1) / 1000 * imgW;
+      const Y0 = Math.min(y0, y1) / 1000 * imgH, Y1 = Math.max(y0, y1) / 1000 * imgH;
+      // drop degenerate slivers: a real room or fixture is never a handful of pixels.
+      // absolute pixel floors are useless across image sizes, so scale the test.
+      if ((X1 - X0) < imgW * 0.01 || (Y1 - Y0) < imgH * 0.01) continue;
+      if ((X1 - X0) * (Y1 - Y0) < imgW * imgH * 0.0005) continue;
+      out.push({ label: coerceRasterLabel(it.label), box: [X0, Y0, X1, Y1] });
+    }
+    return out;
+  }
+
+  function coerceRasterLabel(raw) {
+    const up = String(raw || '').toUpperCase().replace(/[^A-Z_ ]/g, ' ');
+    for (const t of RASTER_CLASSES) if (new RegExp('\\b' + t.replace('_', '[ _]') + '\\b').test(up)) return t;
+    if (/\bLIVING|BEDROOM|KITCHEN|BATH|TOILET|HALL|DINING|BALCON/.test(up)) return 'ROOM';
+    return 'UNKNOWN';
+  }
+
+  async function detectRegions(dataUrl, imgW, imgH, apiKey, model) {
+    const t = performance.now();
+    if (!apiKey) return { boxes: [], ms: 0, source: 'stub', note: 'No API key - raster detection stubbed. Trace regions manually instead.' };
+    const b64 = dataUrl.split(',')[1];
+    const candidates = model ? [model] : PREFERRED;
+    let last = null;
+    for (const cand of candidates) {
+      try {
+        const r = await fetch(BASE + '/models/' + cand + ':generateContent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: RASTER_PROMPT }, { inline_data: { mime_type: 'image/png', data: b64 } }] }],
+            generationConfig: { temperature: 0, maxOutputTokens: 2048, responseMimeType: 'application/json' }
+          })
+        });
+        const ms = Math.round(performance.now() - t);
+        if (!r.ok) {
+          const e = await r.text();
+          last = { boxes: [], ms, source: 'error', model: cand, note: 'API ' + r.status + ' on ' + cand + ': ' + e.slice(0, 150) };
+          if (/404|NOT_FOUND|not found|not available|unsupported/i.test(e) || r.status === 404) continue;
+          return last;
+        }
+        const j = await r.json();
+        const raw = (((j.candidates || [])[0] || {}).content || {}).parts?.[0]?.text || '';
+        const boxes = parseBoxes(raw, imgW, imgH);
+        return { boxes, ms, source: 'gemini', model: cand, raw: raw.slice(0, 400),
+                 note: boxes.length ? '' : 'Model replied but no usable boxes were parsed.' };
+      } catch (e) {
+        last = { boxes: [], ms: Math.round(performance.now() - t), source: 'error', model: cand, note: String(e.message || e) };
+      }
+    }
+    return last || { boxes: [], ms: 0, source: 'error', note: 'no candidate model succeeded' };
+  }
+
+  const API = { ONTOLOGY, CATEGORY_OF, residuals, detectRegions, parseBoxes, coerceRasterLabel, RASTER_CLASSES, RASTER_PROMPT, renderCrop, geometryFor, classify, coerceLabel, PROMPT, listModels, PREFERRED, BASE };
+  if (typeof module !== 'undefined' && module.exports) module.exports = API;
+  root.VISION = API;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+</script>
+<script>
+let DOC=null, RES=null, BOQR=null, SEL=null;
+let REVIEW={};      // code -> {status, by, at, reason, qty, paramSig, supersedes}
+let AUDIT=[];       // append-only
+let EDITMODE=null;  // 'param' | 'override' | 'reject' | null
+function paramSig(){return document.getElementById('wh').value+'|'+document.getElementById('wt').value;}
+function reviewer(){return (document.getElementById('reviewer')||{}).value?.trim()||'';}
+// which lines depend on operator parameters
+const PARAM_DEPS={wall_masonry:['wh'],wall_plaster:['wh','wt']};
+
+/* ---------- sample generator (compact DXF writer) ---------- */
+function writeDXF(spec){
+  const L=[]; const P=(c,v)=>{L.push(String(c));L.push(String(v));};
+  P(0,'SECTION');P(2,'HEADER');
+  if(!spec.stripUnits){P(9,'$INSUNITS');P(70,4);}
+  P(0,'ENDSEC');
+  P(0,'SECTION');P(2,'TABLES');P(0,'TABLE');P(2,'LAYER');
+  for(const n of spec.layers){P(0,'LAYER');P(2,n);P(70,0);}
+  P(0,'ENDTAB');P(0,'ENDSEC');
+  P(0,'SECTION');P(2,'ENTITIES');
+  let h=256;
+  for(const e of spec.ents){
+    P(0,e.t);P(5,(h++).toString(16).toUpperCase());P(8,e.l);
+    if(e.t==='LWPOLYLINE'){P(90,e.p.length);P(70,1);for(const q of e.p){P(10,q[0]);P(20,q[1]);}}
+    if(e.t==='HATCH'){P(2,'ANSI31');P(91,1);P(92,2);P(72,0);P(73,1);P(93,e.p.length);for(const q of e.p){P(10,q[0]);P(20,q[1]);}}
+    if(e.t==='INSERT'){P(2,e.b);P(10,e.p[0]);P(20,e.p[1]);}
+    if(e.t==='TEXT'){P(1,e.s);P(10,e.p[0]);P(20,e.p[1]);P(40,200);}
+  }
+  P(0,'ENDSEC');P(0,'EOF');
+  return L.join('\n');
+}
+function rect(x,y,w,h){return [[x,y],[x+w,y],[x+w,y+h],[x,y+h]];}
+function wallBand(a,b,t){
+  const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy);
+  const ox=-dy/L*t/2, oy=dx/L*t/2;
+  return [[a[0]+ox,a[1]+oy],[b[0]+ox,b[1]+oy],[b[0]-ox,b[1]-oy],[a[0]-ox,a[1]-oy]];
+}
+function sampleSpec(broken){
+  const T=230;
+  const rooms=[{n:'Living',x:0,y:0,w:4500,h:3600},{n:'Bedroom',x:4500,y:0,w:3200,h:3600}];
+  const segs=[[[0,0],[7700,0]],[[0,3600],[7700,3600]],[[0,0],[0,3600]],
+              [[7700,0],[7700,3600]],[[4500,0],[4500,3600]]];
+  const LY = broken
+    ? {wall:'LAYER_4F2A',room:'LAYER_88C1',door:'LAYER_9B02',win:'LAYER_2D77',furn:'LAYER_A014',txt:'LAYER_1101'}
+    : {wall:'A-WALL',room:'A-ROOM',door:'A-DOOR',win:'A-GLAZ',furn:'A-FURN',txt:'A-ANNO'};
+  const ents=[];
+  for(const [a,b] of segs){
+    const p=wallBand(a,b,T);
+    ents.push({t:'LWPOLYLINE',l:LY.wall,p});
+    if(!broken) ents.push({t:'HATCH',l:LY.wall,p});
+  }
+  for(const r of rooms){
+    ents.push({t:'LWPOLYLINE',l:LY.room,p:rect(r.x,r.y,r.w,r.h)});
+    ents.push({t:'TEXT',l:LY.txt,s:r.n,p:[r.x+r.w/2,r.y+r.h/2]});
+  }
+  const ins=[['DOOR_900',LY.door,2000,0],['DOOR_750',LY.door,4500,1800],
+             ['WIN_1200',LY.win,1500,3600],['WIN_1500',LY.win,6000,3600],
+             ['SOFA_3S',LY.furn,1200,900],['SOFA_2S',LY.furn,3200,900],
+             ['TABLE_DIN',LY.furn,2200,2600],['BED_QN',LY.furn,6000,1800]];
+  for(const [b,l,x,y] of ins){
+    if(broken && l===LY.furn){ ents.push({t:'LWPOLYLINE',l,p:rect(x,y,1400,800)}); }
+    else ents.push({t:'INSERT',l,b,p:[x,y]});
+  }
+  return {layers:Object.values(LY),ents,stripUnits:false};
+}
+function loadSample(kind){
+  const txt=writeDXF(sampleSpec(kind==='broken'));
+  handleFile(new File([txt],'sample_'+kind+'.dxf',{type:'text/plain'}));
+}
+
+/* ---------- pipeline ---------- */
+let TIER=null, ROUTE=null, TRACE=[], REGIONS=[], CAL={unitsPerMetre:null}, VIS={key:'',model:'',models:[],modelNote:'',results:{}};
+let RAS={img:null,w:0,h:0,mode:null,calPts:[],draft:[],scaleImg:1,offX:0,offY:0};
+
+function t0(){return performance.now();}
+function trace(stage,ms,detail){TRACE.push({stage,ms:Math.round(ms*10)/10,detail});}
+
+async function handleFile(file){
+  TRACE=[]; REVIEW={}; AUDIT=[]; SEL=null; EDITMODE=null; REGIONS=[]; VIS.results={};
+  const a=t0();
+  const buf=new Uint8Array(await file.arrayBuffer());
+  trace('read file',t0()-a, file.name+' · '+(buf.length/1024).toFixed(1)+' KB');
+
+  const b=t0();
+  ROUTE=await INGEST.ingest(buf,file.name);
+  trace('sniff + route',t0()-b,'format '+ROUTE.kind.toUpperCase()+' → tier '+ROUTE.tier);
+  TIER=ROUTE.tier;
+
+  document.getElementById('app').classList.remove('hide');
+  document.getElementById('dropzone-sec').classList.add('hide');
+  renderTier();
+
+  if(ROUTE.tier==='REFUSED'){ hideDownstream(true); renderTrace(); return; }
+  hideDownstream(false);
+
+  if(ROUTE.tier==='A'){
+    const c=t0();
+    DOC=BOQ.parseDXF(ROUTE.text);
+    trace('DXF parse',t0()-c, DOC.entities.length+' entities · '+DOC.layers.length+' layers · '+
+      Object.keys(DOC.blocks||{}).length+' block defs');
+    document.getElementById('calsec').classList.add('hide');
+    run();
+  } else if(ROUTE.kind==='raster'){
+    CAL={unitsPerMetre:null};
+    RAS={img:null,w:0,h:0,mode:null,calPts:[],draft:[],scaleImg:1,offX:0,offY:0};
+    document.getElementById('calsec').classList.remove('hide');
+    document.getElementById('rasterwrap').classList.remove('hide');
+    const url=URL.createObjectURL(file);
+    await new Promise(res=>{ const im=new Image(); im.onload=()=>{
+      RAS.img=im; RAS.w=im.naturalWidth; RAS.h=im.naturalHeight; res(); }; im.onerror=res; im.src=url; });
+    trace('raster decode',0,RAS.w+' x '+RAS.h+' px · no geometry, no semantics');
+    setMode('cal'); renderCal(); renderTrace();
+  } else {
+    // Tier B: geometry without semantics. Operator calibrates, then assigns.
+    REGIONS=(ROUTE.paths||[]).filter(p=>p.closed&&p.pts.length>2)
+      .map((p,i)=>({id:'R'+i,pts:p.pts,area:BOQ.shoelace(p.pts),cat:'unassigned',source:'pdf'}));
+    trace('geometry lift',0,REGIONS.length+' closed region(s), 0 semantic signals available');
+    document.getElementById('calsec').classList.remove('hide');
+    document.getElementById('rasterwrap').classList.add('hide');
+    renderCal(); renderTrace();
+  }
+  window.scrollTo({top:document.getElementById('app').offsetTop-40,behavior:'smooth'});
+}
+
+function hideDownstream(hide){
+  ['calsec'].concat([]).forEach(()=>{});
+  const secs=document.querySelectorAll('#app > section');
+  secs.forEach((s,i)=>{ if(i>=2) s.style.display = hide?'none':''; });
+}
+
+function renderTier(){
+  const el=document.getElementById('tier'); const r=ROUTE;
+  if(r.tier==='REFUSED'){
+    el.innerHTML=`<div class="tiercard tier-REFUSED">
+      <div><div class="tierbadge">REFUSED<small>${(r.kind||'').toUpperCase()}${r.version?' · '+r.version:''}</small></div></div>
+      <div><div class="lbl">${r.reason}</div>
+        ${r.versionName?`<p style="font-size:13px;color:var(--muted);margin-top:var(--xs)">Detected ${r.version} — ${r.versionName}.</p>`:''}
+        <ul style="margin:var(--md) 0 0 var(--lg);font-size:14px">${(r.evidence||[]).map(e=>`<li style="margin-bottom:var(--xs)">${e}</li>`).join('')}</ul>
+        <div class="banner okb" style="margin-top:var(--lg)"><b style="color:var(--success)">Fix:</b> ${r.fix}</div></div></div>`;
+    return;
+  }
+  const desc={A:'Exact geometry and full semantics — layers, blocks, hatch patterns. Everything the classifier needs is in the file.',
+              B:'Exact geometry, zero semantics. PDF carries paths but no layers, blocks or hatch patterns, so every classification signal is gone and each region needs a human or the vision model.',
+              C:'No geometry at all. Pixels only. The operator sets scale from a known dimension and traces regions — the arithmetic stays deterministic, the geometry is human-supplied.'}[r.tier];
+  el.innerHTML=`<div class="tiercard">
+    <div><div class="tierbadge">${r.tier}<small>TIER · ${(r.kind||'').toUpperCase()}${r.format?' '+r.format:''}</small></div></div>
+    <div><div class="lbl">${{A:'Native CAD',B:'Vector PDF',C:'Raster'}[r.tier]}</div>
+      <p style="font-size:14px;margin-top:var(--xs)">${desc}</p>
+      ${r.note?`<p style="font-size:13px;color:var(--muted);margin-top:var(--sm)">${r.note}</p>`:''}
+      ${r.tier!=='A'?'<div class="banner" style="margin-top:var(--md)">Quantities from this tier are not equivalent to Tier A. The export records the tier so nobody downstream mistakes one for the other.</div>':''}
+    </div></div>`;
+}
+
+function renderTrace(){
+  const el=document.getElementById('trace');
+  const total=TRACE.reduce((s,t)=>s+t.ms,0);
+  el.innerHTML=TRACE.map(t=>`<div class="tracerow"><b>${t.stage}</b>
+    <span class="ms">${t.ms.toFixed(1)} ms</span><span class="d">${t.detail}</span></div>`).join('')
+    +`<div class="tracerow" style="border-bottom:none;margin-top:var(--xs)"><b>total</b>
+      <span class="ms">${total.toFixed(1)} ms</span><span class="d">deterministic stages only; vision calls timed separately</span></div>`;
+}
+
+/* ---------- raster workspace (tier C) ---------- */
+function setMode(m){
+  RAS.mode=m; RAS.draft=[]; if(m==='cal') RAS.calPts=[];
+  document.getElementById('btnCal').classList.toggle('on',m==='cal');
+  document.getElementById('btnTrace').classList.toggle('on',m==='trace');
+  document.getElementById('rhint').textContent = m==='cal'
+    ? 'Click two points a known distance apart — a door width, a stated dimension, a room edge. Then enter that distance below.'
+    : 'Click to place points. Click the first point again, or press Enter, to close the region.';
+  drawRaster();
+}
+
+function rcvXY(ev){
+  const cv=document.getElementById('rcv'), r=cv.getBoundingClientRect();
+  const px=(ev.clientX-r.left), py=(ev.clientY-r.top);
+  return [(px-RAS.offX)/RAS.scaleImg, (py-RAS.offY)/RAS.scaleImg];   // image pixel coords
+}
+
+function rcvClick(ev){
+  if(!RAS.img) return;
+  const p=rcvXY(ev);
+  if(RAS.mode==='cal'){
+    RAS.calPts.push(p); if(RAS.calPts.length>2) RAS.calPts=[p];
+    drawRaster(); renderCal(); return;
+  }
+  if(RAS.mode==='trace'){
+    if(RAS.draft.length>2){
+      const f=RAS.draft[0];
+      if(Math.hypot(p[0]-f[0],p[1]-f[1])*RAS.scaleImg < 12){ closeRegion(); return; }
+    }
+    RAS.draft.push(p); drawRaster();
+  }
+}
+
+function closeRegion(){
+  if(RAS.draft.length<3){ RAS.draft=[]; drawRaster(); return; }
+  const pts=RAS.draft.slice();
+  REGIONS.push({id:'T'+REGIONS.length,pts,area:BOQ.shoelace(pts),cat:'unassigned',source:'traced'});
+  RAS.draft=[]; drawRaster(); renderCal(); buildFromRegions();
+}
+function clearRegions(){ REGIONS=[]; RAS.draft=[]; DOC=null; RES=null; BOQR=null; drawRaster(); renderCal(); }
+
+function drawRaster(){
+  const cv=document.getElementById('rcv'); if(!cv||!RAS.img) return;
+  const dpr=window.devicePixelRatio||1;
+  cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr;
+  const g=cv.getContext('2d'); g.scale(dpr,dpr);
+  const W=cv.clientWidth,H=cv.clientHeight;
+  g.fillStyle='#0d0d0d'; g.fillRect(0,0,W,H);
+  const s=Math.min(W/RAS.w,H/RAS.h); RAS.scaleImg=s;
+  RAS.offX=(W-RAS.w*s)/2; RAS.offY=(H-RAS.h*s)/2;
+  g.drawImage(RAS.img,RAS.offX,RAS.offY,RAS.w*s,RAS.h*s);
+  const X=x=>RAS.offX+x*s, Y=y=>RAS.offY+y*s;
+
+  // committed regions
+  const COL={floor:'#1c69d4',wall:'#e22718',furniture:'#f4b400',unassigned:'#7e7e7e',ignore:'#3c3c3c'};
+  for(const r of REGIONS){
+    const c=COL[r.cat]||'#7e7e7e';
+    g.strokeStyle=c; g.lineWidth=r.source==='proposed'?1.5:2.5;
+    if(r.source==='proposed') g.setLineDash([6,4]); else g.setLineDash([]);
+    g.fillStyle=c+'33';
+    g.beginPath(); r.pts.forEach((p,i)=>i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1])));
+    g.closePath(); g.fill(); g.stroke(); g.setLineDash([]);
+    if(r.label){ g.fillStyle=c; g.font='700 10px Inter,sans-serif';
+      g.fillText(r.label+(r.source==='proposed'?' ?':''),X(r.pts[0][0])+4,Y(r.pts[0][1])+12); }
+  }
+  // draft polygon
+  if(RAS.draft.length){
+    g.strokeStyle='#fff'; g.lineWidth=2; g.setLineDash([4,3]);
+    g.beginPath(); RAS.draft.forEach((p,i)=>i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1])));
+    g.stroke(); g.setLineDash([]);
+    for(const p of RAS.draft){ g.fillStyle='#fff'; g.beginPath(); g.arc(X(p[0]),Y(p[1]),3,0,7); g.fill(); }
+  }
+  // calibration line
+  if(RAS.calPts.length){
+    g.strokeStyle='#0fa336'; g.lineWidth=2;
+    g.beginPath();
+    RAS.calPts.forEach((p,i)=>i?g.lineTo(X(p[0]),Y(p[1])):g.moveTo(X(p[0]),Y(p[1])));
+    g.stroke();
+    for(const p of RAS.calPts){ g.fillStyle='#0fa336'; g.beginPath(); g.arc(X(p[0]),Y(p[1]),4,0,7); g.fill(); }
+  }
+  const px=RAS.calPts.length===2?Math.hypot(RAS.calPts[1][0]-RAS.calPts[0][0],RAS.calPts[1][1]-RAS.calPts[0][1]):0;
+  document.getElementById('rstat').textContent =
+    (CAL.unitsPerMetre?('1 m = '+CAL.unitsPerMetre.toFixed(1)+' px · '):'scale not set · ')+
+    REGIONS.length+' region(s)'+(px?' · picked '+px.toFixed(0)+' px':'');
+}
+
+async function detectRaster(){
+  if(!RAS.img) return;
+  const cv=document.createElement('canvas'); cv.width=RAS.w; cv.height=RAS.h;
+  cv.getContext('2d').drawImage(RAS.img,0,0);
+  const url=cv.toDataURL('image/png');
+  document.getElementById('rstat').textContent='detecting…';
+  const out=await VISION.detectRegions(url,RAS.w,RAS.h,VIS.key,VIS.model||null);
+  trace('raster vision detect',out.ms||0,
+    (out.source==='gemini'?('live · '+out.model):out.source)+' · '+out.boxes.length+
+    ' boundary proposal(s) · no scale, no quantities accepted');
+  const CATOF={ROOM:'floor',WALL:'wall',DOOR:'ignore',WINDOW:'ignore'};
+  for(const b of out.boxes){
+    const [x0,y0,x1,y1]=b.box;
+    REGIONS.push({id:'P'+REGIONS.length,pts:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],
+      area:Math.abs((x1-x0)*(y1-y0)),cat:CATOF[b.label]||'furniture',
+      label:b.label,source:'proposed'});
+  }
+  if(out.note) document.getElementById('rhint').textContent=out.note;
+  drawRaster(); renderCal(); renderTrace(); buildFromRegions();
+}
+
+/* ---------- tier B/C calibration + assignment ---------- */
+function renderCal(){
+  const el=document.getElementById('cal');
+  const isRaster=ROUTE&&ROUTE.kind==='raster';
+
+  if(!isRaster && !REGIONS.length){
+    el.innerHTML='<div class="banner"><b style="color:var(--m-red)">No closed regions found.</b> '+
+      (ROUTE.note||'')+' Nothing can be measured from this file.</div>';
+    return;
+  }
+
+  let scaleUI;
+  if(isRaster){
+    const n=RAS.calPts.length;
+    const px=n===2?Math.hypot(RAS.calPts[1][0]-RAS.calPts[0][0],RAS.calPts[1][1]-RAS.calPts[0][1]):0;
+    scaleUI=`<div class="banner">A raster has no scale. Pick two points on the image a known distance apart and
+      type that distance — <b>every quantity on this tier descends from this one number, and only a human can supply it.</b>
+      The vision model is never asked for a scale.</div>
+      <div class="row">
+        <span class="lbl-muted">${n<2?`picked ${n} of 2 points`:`picked ${px.toFixed(0)} px`}</span>
+        <span class="lbl-muted">=</span>
+        <input type="number" id="calw" step="0.001" value="${CAL.realDist||''}" placeholder="metres" style="width:150px" ${n<2?'disabled':''}>
+        <button class="sm" onclick="applyCal()" ${n<2?'disabled':''}>Apply scale</button>
+        ${CAL.unitsPerMetre?`<span class="pill p-ok">1 m = ${CAL.unitsPerMetre.toFixed(1)} px</span>`:''}
+      </div>`;
+  } else {
+    const xs=[]; for(const r of REGIONS) for(const p of r.pts) xs.push(p[0]);
+    const w=Math.max(...xs)-Math.min(...xs);
+    scaleUI=`<div class="banner">Scale is unknown for this tier. Enter one real dimension you can read off the
+      drawing — everything else derives from it deterministically.</div>
+      <div class="row">
+        <span class="lbl-muted">Overall drawing width</span>
+        <input type="number" id="calw" step="0.01" value="${CAL.realDist||''}" placeholder="metres" style="width:160px">
+        <span class="lbl-muted">= ${w.toFixed(1)} drawing units</span>
+        <button class="sm" onclick="applyCal()">Apply scale</button>
+        ${CAL.unitsPerMetre?`<span class="pill p-ok">1 m = ${CAL.unitsPerMetre.toFixed(2)} units</span>`:''}
+      </div>`;
+  }
+
+  const prop=REGIONS.filter(r=>r.source==='proposed').length;
+  const unit=CAL.unitsPerMetre;
+  el.innerHTML=scaleUI+`
+    <div style="margin-top:var(--lg)"><div class="lbl">Regions (${REGIONS.length})</div>
+    <p style="font-size:13px;color:var(--muted);margin:var(--xs) 0 var(--md)">
+      ${prop?`<b style="color:var(--warning)">${prop} boundary proposal(s) from the vision model.</b>
+        A proposal is not a measurement. Confirm or delete each one — the area is computed by the engine from the
+        confirmed boundary and your scale, never by the model.`
+       :'Each region has geometry and no meaning. Assign it, or let the vision step propose boundaries.'}</p>
+    <table><thead><tr><th>ID</th><th>Source</th><th>Model label</th><th style="text-align:right">Area</th>
+      <th>Assignment</th><th></th></tr></thead>
+    <tbody>${REGIONS.map(r=>`<tr>
+      <td class="mono">${r.id}</td>
+      <td><span class="pill ${r.source==='proposed'?'p-med':'p-ok'}" style="font-size:10px">${
+        r.source==='proposed'?'PROPOSED':r.source==='traced'?'HUMAN TRACED':'PDF PATH'}</span></td>
+      <td>${r.label||'—'}</td>
+      <td class="num">${unit?(r.area/(unit**2)).toFixed(2)+' m²':r.area.toFixed(0)+' u²'}</td>
+      <td><select class="assign" onchange="assign('${r.id}',this.value)">
+        ${['unassigned','floor','wall','furniture','ignore'].map(c=>
+          `<option value="${c}" ${r.cat===c?'selected':''}>${c}</option>`).join('')}
+      </select></td>
+      <td>${r.source==='proposed'
+        ?`<button class="sm ok" onclick="confirmRegion('${r.id}')">Confirm</button>`
+        :''} <button class="sm bad" onclick="dropRegion('${r.id}')">Delete</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function confirmRegion(id){
+  if(!reviewer()){ alert('Enter a reviewer name in the bill section — confirmations are recorded.'); return; }
+  const r=REGIONS.find(x=>x.id===id); if(!r) return;
+  r.source='confirmed';
+  AUDIT.push({at:new Date().toISOString().replace('T',' ').slice(0,19),by:reviewer(),code:id,
+    status:'ACCEPTED',detail:'boundary proposal confirmed'+(r.label?' ('+r.label+')':'')});
+  renderCal(); drawRaster(); buildFromRegions(); renderAudit();
+}
+function dropRegion(id){
+  REGIONS=REGIONS.filter(x=>x.id!==id);
+  renderCal(); drawRaster(); buildFromRegions();
+}
+
+function applyCal(){
+  const v=parseFloat(document.getElementById('calw').value);
+  if(!(v>0)){alert('Enter the real-world distance in metres.');return;}
+  let units;
+  if(ROUTE&&ROUTE.kind==='raster'){
+    if(RAS.calPts.length!==2){alert('Pick two points on the image first.');return;}
+    units=Math.hypot(RAS.calPts[1][0]-RAS.calPts[0][0],RAS.calPts[1][1]-RAS.calPts[0][1]);
+  } else {
+    const xs=[]; for(const r of REGIONS) for(const p of r.pts) xs.push(p[0]);
+    units=Math.max(...xs)-Math.min(...xs);
+  }
+  CAL.realDist=v; CAL.unitsPerMetre=units/v;
+  trace('scale calibration',0,'1 m = '+CAL.unitsPerMetre.toFixed(3)+' drawing units (operator supplied)');
+  drawRaster(); buildFromRegions();
+}
+function assign(id,cat){ const r=REGIONS.find(x=>x.id===id); if(r)r.cat=cat; drawRaster(); buildFromRegions(); }
+
+/* Regions become a synthetic doc so the SAME engine measures them.
+   Nothing about the measurement path changes between tiers. */
+function buildFromRegions(){
+  if(!CAL.unitsPerMetre){ renderCal(); renderTrace(); return; }
+  const k=1000/CAL.unitsPerMetre;   // drawing units -> millimetres
+  const LAYER={floor:'A-ROOM',wall:'A-WALL',furniture:'A-FURN'};
+  const ents=[]; let pending=0;
+  for(const r of REGIONS){
+    if(!LAYER[r.cat]) continue;
+    // an UNCONFIRMED model proposal is not geometry yet - it cannot produce a number
+    if(r.source==='proposed'){ pending++; continue; }
+    const pts=r.pts.map(p=>[p[0]*k,p[1]*k]);
+    ents.push({type:'LWPOLYLINE',handle:r.id,layer:LAYER[r.cat],pts,closed:true});
+    if(r.cat==='wall') ents.push({type:'HATCH',handle:r.id+'h',layer:'A-WALL',pts,closed:true,pattern:'ASSIGNED'});
+  }
+  PENDING_PROPOSALS=pending;
+  DOC={insunitsInFile:true,insunits:4,layers:Object.values(LAYER),entities:ents,blocks:{}};
+  renderCal(); run();
+}
+let PENDING_PROPOSALS=0;
+
+function run(){
+  const wh=parseFloat(document.getElementById('wh').value)||3;
+  const wt=parseFloat(document.getElementById('wt').value)||0.23;
+  RES = BOQ.measure(DOC,{wallHeight:wh,wallThickness:wt});
+  renderGate();
+  if(!RES.gate.ok){ ['specs','flags','boq'].forEach(i=>document.getElementById(i).innerHTML='');
+    document.getElementById('total').textContent='—';
+    document.getElementById('approve').innerHTML='<div class="lbl" style="color:var(--m-red)">Halted</div><p style="margin-top:var(--xs)">Nothing was measured. The pipeline stops before any quantity is produced.</p>';
+    draw(); return; }
+  const _t=t0();
+  BOQR = BOQ.buildBOQ(RES);
+  applyReviews();
+  TRACE=TRACE.filter(x=>!/measure|classify|BOQ build/.test(x.stage));
+  trace('rule classify',0.0,(DOC.layers||[]).length+' layers voted · '+RES.unresolvedLayers.length+' unresolved');
+  trace('measure + checks',t0()-_t,RES.measurements.length+' quantities · '+RES.flags.length+' check(s) fired');
+  trace('BOQ build',0.0,BOQR.lines.length+' lines · '+gatingLines().length+' gating review');
+  renderSpecs(); renderFlags(); renderBOQ(); renderAudit(); renderApprove(); renderVision(); renderTrace(); draw();
+  if(SEL) select(SEL);
+}
+
+function applyReviews(){
+  const sig=paramSig();
+  // Tier B/C geometry is human-supplied or model-proposed, never read from a CAD file.
+  // No line from those tiers is ever auto-accepted.
+  if(TIER && TIER!=='A'){
+    for(const l of BOQR.lines) if(l.review==='AUTO') l.review='REQUIRED';
+  }
+  for(const l of BOQR.lines){
+    const r=REVIEW[l.code];
+    if(!r){ l.rstate='PENDING'; continue; }
+    // a parameter change invalidates reviews of lines that depend on it
+    const dep=PARAM_DEPS[l.key];
+    if(dep && r.paramSig!==sig && r.status!=='REJECTED'){ l.rstate='STALE'; l.review_by=r.by; continue; }
+    l.rstate=r.status; l.review_by=r.by; l.review_reason=r.reason;
+    if(r.status==='OVERRIDDEN'){ l.qty=r.qty; l.amount=l.qty*l.rate; l.provenanceBroken=true; }
+    if(r.status==='REJECTED'){ l.excluded=true; }
+  }
+  BOQR.total=BOQR.lines.filter(l=>!l.excluded).reduce((s,l)=>s+l.amount,0);
+}
+
+function gatingLines(){
+  // lines whose review must be resolved before export
+  return BOQR.lines.filter(l=>
+    (l.review==='REQUIRED'||l.review==='BLOCKED'||l.review==='SPOT_CHECK') &&
+    !['ACCEPTED','EDITED','OVERRIDDEN','REJECTED'].includes(l.rstate));
+}
+
+function logAudit(code,status,detail){
+  AUDIT.push({at:new Date().toISOString().replace('T',' ').slice(0,19),
+              by:reviewer()||'unnamed', code, status, detail});
+}
+
+function act(code,status,extra){
+  if(!reviewer()){ alert('Enter a reviewer name before recording a decision.'); return; }
+  const l=BOQR.lines.find(x=>x.code===code);
+  const prev=REVIEW[code];
+  REVIEW[code]=Object.assign({status,by:reviewer(),at:new Date().toISOString(),
+    paramSig:paramSig(),supersedes:prev?prev.status:null},extra||{});
+  logAudit(code,status,(extra&&extra.detail)||'');
+  EDITMODE=null;
+  run();
+}
+
+function acceptLine(c){ act(c,'ACCEPTED',{detail:'Quantity confirmed as measured'}); }
+
+function saveParamEdit(c){
+  const wh=document.getElementById('e_wh'), wt=document.getElementById('e_wt');
+  const reason=(document.getElementById('e_reason').value||'').trim();
+  if(!reason){ alert('A reason is required — it goes on the audit trail.'); return; }
+  const before=document.getElementById('wh').value+' m / '+document.getElementById('wt').value+' m';
+  if(wh) document.getElementById('wh').value=wh.value;
+  if(wt) document.getElementById('wt').value=wt.value;
+  const after=document.getElementById('wh').value+' m / '+document.getElementById('wt').value+' m';
+  // parameter change is global: invalidate every dependent review, then record this one
+  for(const k of Object.keys(REVIEW)){
+    const ln=BOQR.lines.find(x=>x.code===k);
+    if(ln && PARAM_DEPS[ln.key]) delete REVIEW[k];
+  }
+  logAudit('(global)','PARAM',`height/thickness ${before} -> ${after} · ${reason}`);
+  act(c,'EDITED',{detail:`assumption corrected ${before} -> ${after} · ${reason}`});
+}
+
+function saveOverride(c){
+  const v=parseFloat(document.getElementById('e_qty').value);
+  const reason=(document.getElementById('e_reason').value||'').trim();
+  if(!(v>=0)){ alert('Enter a quantity.'); return; }
+  if(!reason){ alert('An override needs a reason — the number no longer comes from the drawing.'); return; }
+  const l=BOQR.lines.find(x=>x.code===c);
+  act(c,'OVERRIDDEN',{qty:v,reason,detail:`${l.qty.toFixed(3)} -> ${v.toFixed(3)} ${l.unit} · ${reason}`});
+}
+
+function saveReject(c){
+  const reason=(document.getElementById('e_reason').value||'').trim();
+  if(!reason){ alert('A reason is required.'); return; }
+  act(c,'REJECTED',{reason,detail:reason});
+}
+
+function setEdit(m){ EDITMODE=m; select(SEL); }
+
+function renderGate(){
+  const g=RES.gate;
+  const el=document.getElementById('gate');
+  const ok=g.ok;
+  el.innerHTML=`
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <span class="pill ${ok?'p-high':'p-block'}">${ok?'PASS':'HALT'}</span>
+        <span class="lbl" style="margin-left:var(--sm)">${ok?('Units: '+g.unit.toUpperCase()):'Units unresolved'}</span>
+      </div>
+      <span class="lbl-muted">$INSUNITS = ${g.code===null?'absent':g.code}</span>
+    </div>
+    <p style="margin-top:var(--sm);font-size:14px">${g.reason}.</p>
+    ${ok?'':'<p style="margin-top:var(--xs);font-size:14px;color:var(--m-red)">A parser will happily return a default unit code for a file that contains none. That default is not data, so the pipeline halts here rather than producing quantities against an assumed scale.</p>'}`;
+}
+
+function renderSpecs(){
+  const m=k=>RES.measurements.find(x=>x.key===k);
+  const f=(v,d)=>v.toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});
+  const cells=[
+    ['Floor area', f(m('floor_area').value,2)+' m²'],
+    ['Rooms', m('room_count').value],
+    ['Wall footprint', f(m('wall_plan').value,2)+' m²'],
+    ['Openings', m('door_count').value+' / '+m('window_count').value]
+  ];
+  document.getElementById('specs').innerHTML=cells.map(c=>
+    `<div class="spec"><div class="v">${c[1]}</div><div class="k">${c[0]}</div></div>`).join('');
+}
+
+function renderFlags(){
+  const el=document.getElementById('flags');
+  if(!RES.flags.length){ el.innerHTML='<p style="font-size:14px">No checks fired.</p>'; return; }
+  el.innerHTML=RES.flags.map(f=>
+    `<div class="flag f-${f.sev}"><b>${f.sev}</b><span>${f.msg}</span></div>`).join('')
+    + RES.assumptions.map(a=>`<div class="flag f-MED"><b>ASSUMED</b><span>${a}</span></div>`).join('');
+}
+
+function renderBOQ(){
+  const tb=document.getElementById('boq');
+  const rows=[...BOQR.lines].sort((a,b)=>b.amount-a.amount);
+  const P={HIGH:'p-high',MED:'p-med',NONE:'p-none'};
+  const RS={PENDING:'p-auto',STALE:'p-stale',ACCEPTED:'p-ok',EDITED:'p-ok',
+            OVERRIDDEN:'p-med',REJECTED:'p-block'};
+  tb.innerHTML=rows.map(l=>{
+    const st=l.rstate||'PENDING';
+    const label = st==='PENDING' ? l.review.replace('_',' ') : st;
+    return `<tr class="click ${SEL===l.code?'sel':''} ${l.excluded?'rejected':''}" onclick="select('${l.code}')">
+      <td class="mono">${l.code}</td>
+      <td>${l.desc}${l.provenanceBroken?' <span class="pill p-med">OVERRIDE</span>':''}</td>
+      <td>${l.unit}</td>
+      <td class="num">${l.qty.toLocaleString('en-IN',{maximumFractionDigits:2})}</td>
+      <td class="num">${l.rate.toLocaleString('en-IN')}</td>
+      <td class="num">${Math.round(l.amount).toLocaleString('en-IN')}</td>
+      <td><span class="pill ${P[l.confidence]}">${l.confidence}</span></td>
+      <td><span class="pill ${RS[st]||'p-auto'}">${label}</span></td>
+    </tr>`;}).join('');
+  document.getElementById('total').textContent='₹ '+Math.round(BOQR.total).toLocaleString('en-IN');
+  const need=BOQR.lines.filter(l=>['REQUIRED','BLOCKED','SPOT_CHECK'].includes(l.review));
+  const done=need.length-gatingLines().length;
+  const pct=need.length?Math.round(done/need.length*100):100;
+  document.getElementById('progbar').style.width=pct+'%';
+  document.getElementById('progtext').textContent=
+    need.length? `${done} of ${need.length} lines requiring review resolved` : 'No lines require review';
+}
+
+function select(code){
+  SEL=code; renderBOQ(); draw();
+  const l=BOQR.lines.find(x=>x.code===code);
+  if(!l) return;
+  const st=l.rstate||'PENDING';
+  const cp=l.confidence==='HIGH'?'p-high':l.confidence==='MED'?'p-med':'p-none';
+  const gating=['REQUIRED','BLOCKED','SPOT_CHECK'].includes(l.review);
+
+  let why='';
+  if(l.review==='BLOCKED') why='Quantity could not be measured from the drawing.';
+  else if(l.review==='REQUIRED') why='Classification rests on a single signal — evidence is thin.';
+  else if(l.review==='SPOT_CHECK') why='High confidence, but this line carries a large share of the total value.';
+  else why='Evidence is strong and the value is small. No review required.';
+
+  let edit='';
+  if(EDITMODE==='param'){
+    const dep=PARAM_DEPS[l.key]||[];
+    edit=`<div class="editbox">
+      <div class="lbl" style="font-size:12px">Correct the assumption</div>
+      <p style="font-size:13px;margin-top:var(--xs)">This changes the input the quantity is derived from, so the number stays traceable to the drawing. It recomputes every dependent line and invalidates their prior reviews.</p>
+      ${dep.includes('wh')?`<label class="lbl-muted">Wall height (m)<input id="e_wh" type="number" step="0.1" value="${document.getElementById('wh').value}"></label>`:''}
+      ${dep.includes('wt')?`<label class="lbl-muted">Wall thickness (m)<input id="e_wt" type="number" step="0.01" value="${document.getElementById('wt').value}"></label>`:''}
+      <label class="lbl-muted">Reason (required)<textarea id="e_reason" placeholder="e.g. slab-to-slab height on site is 3.2 m"></textarea></label>
+      <div class="actions"><button class="ok sm" onclick="saveParamEdit('${l.code}')">Save</button>
+        <button class="sm" onclick="setEdit(null)">Cancel</button></div></div>`;
+  } else if(EDITMODE==='override'){
+    edit=`<div class="editbox">
+      <div class="lbl" style="font-size:12px">Override the quantity</div>
+      <p style="font-size:13px;margin-top:var(--xs);color:var(--warning)">The number will no longer come from the drawing. Provenance is broken for this line and the export will say so.</p>
+      <label class="lbl-muted">Quantity (${l.unit})<input id="e_qty" type="number" step="0.001" value="${l.qty.toFixed(3)}"></label>
+      <label class="lbl-muted">Reason (required)<textarea id="e_reason" placeholder="why the drawing is not the right source here"></textarea></label>
+      <div class="actions"><button class="warnb sm" onclick="saveOverride('${l.code}')">Save override</button>
+        <button class="sm" onclick="setEdit(null)">Cancel</button></div></div>`;
+  } else if(EDITMODE==='reject'){
+    edit=`<div class="editbox" style="border-left-color:var(--m-red)">
+      <div class="lbl" style="font-size:12px">Reject this line</div>
+      <label class="lbl-muted">Reason (required)<textarea id="e_reason" placeholder="wrong classification / not in scope / measured elsewhere"></textarea></label>
+      <div class="actions"><button class="bad sm" onclick="saveReject('${l.code}')">Confirm reject</button>
+        <button class="sm" onclick="setEdit(null)">Cancel</button></div></div>`;
+  }
+
+  const canParam=!!PARAM_DEPS[l.key];
+  const actions = EDITMODE? '' : `<div class="actions">
+      <button class="ok" onclick="acceptLine('${l.code}')">Accept</button>
+      ${canParam?`<button class="warnb" onclick="setEdit('param')">Edit assumption</button>`:''}
+      <button class="warnb" onclick="setEdit('override')">Override qty</button>
+      <button class="bad" onclick="setEdit('reject')">Reject</button>
+    </div>`;
+
+  document.getElementById('provbox').innerHTML=`
+    <div style="font-size:20px;font-weight:400;color:var(--ink)">${l.desc}</div>
+    <div class="row" style="margin:var(--md) 0">
+      <span class="pill ${cp}">${l.confidence}</span>
+      <span class="pill p-auto">${(l.status||'').replace('_',' ')}</span>
+      <span class="pill ${st==='PENDING'?'p-auto':st==='STALE'?'p-stale':st==='REJECTED'?'p-block':'p-ok'}">${st}</span>
+      ${l.provenanceBroken?'<span class="pill p-med">PROVENANCE BROKEN</span>':''}
+    </div>
+    <p style="font-size:13px;color:var(--muted)">${why}</p>
+    <table style="margin-top:var(--md)">
+      <tr><td>Quantity</td><td class="num">${l.qty.toLocaleString('en-IN',{maximumFractionDigits:3})} ${l.unit}</td></tr>
+      <tr><td>Amount</td><td class="num">₹ ${Math.round(l.amount).toLocaleString('en-IN')}</td></tr>
+      <tr><td>Source entities</td><td class="num">${l.handles.length}</td></tr>
+      ${canParam?`<tr><td>Assumptions</td><td class="num">h ${document.getElementById('wh').value} m · t ${document.getElementById('wt').value} m</td></tr>`:''}
+    </table>
+    ${l.note?`<p style="margin-top:var(--md);font-size:13px">${l.note}</p>`:''}
+    ${st==='STALE'?`<p style="margin-top:var(--md);font-size:13px;color:var(--warning)">A parameter changed after this line was reviewed by ${l.review_by}. The earlier decision no longer applies — review again.</p>`:''}
+    ${l.review_reason?`<p style="margin-top:var(--md);font-size:13px">Recorded reason: ${l.review_reason}</p>`:''}
+    ${actions}${edit}
+    <div class="lbl-muted" style="margin-top:var(--md)">DXF handles</div>
+    <div class="prov">${l.handles.join(' · ')||'—'}</div>`;
+}
+
+/* ---------- vision fallback ---------- */
+function renderVision(){
+  const el=document.getElementById('vision');
+  const res=VISION.residuals(DOC,BOQ.layerCategory,BOQ.blockCategory);
+  const opts=(VIS.models&&VIS.models.length)
+    ? VIS.models.map(m=>`<option value="${m}" ${VIS.model===m?'selected':''}>${m}</option>`).join('')
+    : VISION.PREFERRED.map(m=>`<option value="${m}" ${VIS.model===m?'selected':''}>${m} (untested)</option>`).join('');
+  const keyBox=`<div class="keyrow">
+      <span class="lbl-muted">Gemini API key</span>
+      <input id="gkey" type="password" placeholder="paste key — held in memory only, never stored" value="${VIS.key}"
+        oninput="VIS.key=this.value">
+      <button class="sm" onclick="detectModels()">Detect models</button>
+    </div>
+    <div class="keyrow" style="margin-top:calc(-1 * var(--sm))">
+      <span class="lbl-muted">Model</span>
+      <select id="gmodel" class="assign" style="flex:0 0 260px;margin-top:0" onchange="VIS.model=this.value">
+        <option value="">auto — walk the fallback chain</option>${opts}</select>
+      <button class="sm solid" onclick="classifyAll()">Classify residuals</button>
+      ${VIS.modelNote?`<span class="lbl-muted" style="font-size:11px">${VIS.modelNote}</span>`:''}
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin:var(--xs) 0 var(--lg)">
+      Model names are discovered from the API, not hardcoded — <span class="mono">gemini-2.0-flash</span> was retired
+      on 31 March 2026 and a fixed name is what broke this call the first time. The key travels in an
+      <span class="mono">x-goog-api-key</span> header, never in the URL. It is sent from this browser straight to Google:
+      fine locally, but in production it belongs on a server so it never reaches the client. Without a key the pipeline
+      still runs — residuals simply route to a human.</p>`;
+
+  if(!res.length){
+    el.innerHTML=keyBox+`<div class="banner okb"><b style="color:var(--success)">No residuals.</b>
+      Every entity was resolved by layer or block name alone. The vision model was not called, and cost for this
+      drawing is zero — which is the point of running it as a fallback rather than a first pass.</div>`;
+    return;
+  }
+  const itemOnly=res.filter(r=>r.missing==='item').length;
+  const both=res.length-itemOnly;
+  el.innerHTML=keyBox+`<div class="banner"><b>${res.length} entit${res.length>1?'ies':'y'} unresolved.</b>
+      ${itemOnly?`<b>${itemOnly}</b> have a known <em>category</em> from the layer but no <em>item</em> identity —
+      they still count correctly, but cannot be priced or matched to a vendor product until the item is known.`:''}
+      ${both?` <b>${both}</b> have neither category nor item.`:''}</div>
+    <div class="crops">${res.map((it,i)=>{
+      const crop=VISION.renderCrop(DOC,it,220);
+      const r=VIS.results[it.ref.handle];
+      return `<div class="crop">
+        <img src="${crop.dataUrl}" alt="crop">
+        <div class="nm">${it.label}</div>
+        <div class="lbl-muted" style="font-size:11px">layer ${it.layer}</div>
+        <div style="margin-top:2px"><span class="pill ${it.missing==='item'?'p-med':'p-none'}" style="font-size:10px">${it.missing==='item'?'ITEM UNKNOWN · COUNTS OK':'CATEGORY + ITEM UNKNOWN'}</span></div>
+        ${r?`<div style="margin-top:var(--xs)"><span class="pill ${r.label==='UNKNOWN'?'p-none':'p-med'}">${r.label}</span>
+             <span class="lbl-muted" style="font-size:11px"> ${r.source}${r.model?' · '+r.model:''}${r.ms?' · '+r.ms+'ms':''}</span></div>
+             ${r.note?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${r.note}</div>`:''}`
+            :'<div style="margin-top:var(--xs)"><span class="pill p-auto">not classified</span></div>'}
+        <select class="assign" onchange="setLabel('${it.ref.handle}',this.value)">
+          <option value="">— human decision —</option>
+          ${VISION.ONTOLOGY.map(o=>`<option value="${o}" ${r&&r.human===o?'selected':''}>${o}</option>`).join('')}
+        </select>
+      </div>`;}).join('')}</div>
+    <p style="font-size:13px;color:var(--muted);margin-top:var(--md)">
+      A model label is a <em>proposal</em>. It only becomes fact when a human picks it, and the human choice
+      supersedes the model on the audit trail.</p>`;
+}
+
+async function detectModels(){
+  if(!VIS.key){ VIS.modelNote='Enter a key first.'; renderVision(); return; }
+  VIS.modelNote='querying…'; renderVision();
+  const a=t0();
+  const r=await VISION.listModels(VIS.key);
+  VIS.models=r.models; VIS.modelNote=r.note;
+  if(r.models.length && !VIS.model) VIS.model=r.models[0];
+  trace('model discovery',t0()-a, r.note+(r.models.length?' · using '+VIS.model:''));
+  renderVision(); renderTrace();
+}
+
+async function classifyAll(){
+  const res=VISION.residuals(DOC,BOQ.layerCategory,BOQ.blockCategory);
+  if(!res.length) return;
+  let ms=0, called=0;
+  for(const it of res){
+    const crop=VISION.renderCrop(DOC,it,256);
+    const out=await VISION.classify(crop.dataUrl,{label:it.label,layer:it.layer},VIS.key,VIS.model||null);
+    VIS.results[it.ref.handle]=out; ms+=out.ms||0; called++;
+    renderVision();
+  }
+  const used=Object.values(VIS.results).map(r=>r.model).filter(Boolean);
+  trace('vision fallback',ms,called+' crop(s) · '+(VIS.key?('live API'+(used.length?' · '+used[used.length-1]:'')):'stubbed, no key')+' · labels only, numbers discarded');
+  renderTrace();
+}
+
+function setLabel(handle,label){
+  if(!label) return;
+  if(!reviewer()){ alert('Enter a reviewer name in the bill section first — label decisions are recorded.'); return; }
+  const prev=VIS.results[handle]||{};
+  VIS.results[handle]=Object.assign({},prev,{label,human:label,source:'human'});
+  AUDIT.push({at:new Date().toISOString().replace('T',' ').slice(0,19),by:reviewer(),
+    code:handle,status:'EDITED',
+    detail:`classification set to ${label}${prev.label&&prev.source==='gemini'?` (model proposed ${prev.label})`:''}`});
+  renderVision(); renderAudit();
+}
+
+function renderAudit(){
+  const el=document.getElementById('audit');
+  if(!AUDIT.length){ el.innerHTML='<p style="font-size:14px">No decisions recorded yet.</p>'; return; }
+  el.innerHTML=[...AUDIT].reverse().map(a=>`
+    <div class="auditrow a-${a.status}">
+      <b>${a.status}</b>
+      <div><span style="color:var(--ink)">${a.code}</span> · ${a.by} · <span class="mono">${a.at}</span>
+      ${a.detail?`<div style="color:var(--muted);margin-top:2px">${a.detail}</div>`:''}</div>
+    </div>`).join('');
+}
+
+/* ---------- drawing canvas ---------- */
+function draw(){
+  const cv=document.getElementById('cv');
+  const dpr=window.devicePixelRatio||1;
+  cv.width=cv.clientWidth*dpr; cv.height=cv.clientHeight*dpr;
+  const g=cv.getContext('2d'); g.scale(dpr,dpr);
+  const W=cv.clientWidth,H=cv.clientHeight;
+  g.fillStyle='#0d0d0d'; g.fillRect(0,0,W,H);
+  if(!DOC) return;
+  let xs=[],ys=[];
+  for(const e of DOC.entities){
+    for(const p of (e.pts||[])){xs.push(p[0]);ys.push(p[1]);}
+    if(e.pos){xs.push(e.pos[0]);ys.push(e.pos[1]);}
+  }
+  if(!xs.length) return;
+  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  const pad=32, s=Math.min((W-pad*2)/((maxX-minX)||1),(H-pad*2)/((maxY-minY)||1));
+  const ox=(W-(maxX-minX)*s)/2, oy=(H-(maxY-minY)*s)/2;
+  const X=x=>ox+(x-minX)*s, Y=y=>H-(oy+(y-minY)*s);
+  const hi = SEL? new Set((BOQR.lines.find(l=>l.code===SEL)||{}).handles||[]) : new Set();
+
+  for(const e of DOC.entities){
+    const on=hi.has(e.handle);
+    g.lineWidth=on?2.5:1;
+    g.strokeStyle=on?'#e22718':'#3c3c3c';
+    g.fillStyle=on?'rgba(226,39,24,.22)':'rgba(255,255,255,.05)';
+    if((e.type==='LWPOLYLINE'||e.type==='HATCH') && e.pts.length>1){
+      g.beginPath(); g.moveTo(X(e.pts[0][0]),Y(e.pts[0][1]));
+      for(const p of e.pts.slice(1)) g.lineTo(X(p[0]),Y(p[1]));
+      g.closePath();
+      if(e.type==='HATCH'||on) g.fill();
+      g.stroke();
+    } else if(e.type==='LINE'){
+      g.beginPath();g.moveTo(X(e.pts[0][0]),Y(e.pts[0][1]));g.lineTo(X(e.pts[1][0]),Y(e.pts[1][1]));g.stroke();
+    } else if(e.type==='INSERT'){
+      const x=X(e.pos[0]),y=Y(e.pos[1]);
+      g.fillStyle=on?'#e22718':'#7e7e7e';
+      g.beginPath();g.arc(x,y,on?6:3.5,0,Math.PI*2);g.fill();
+    } else if(e.type==='TEXT'){
+      g.fillStyle='#7e7e7e';g.font='300 11px Inter,sans-serif';
+      g.fillText(e.text||'',X(e.pos[0])-14,Y(e.pos[1]));
+    }
+  }
+}
+window.addEventListener('resize',()=>{if(DOC)draw();});
+
+/* ---------- approval ---------- */
+function renderApprove(){
+  const blocked=RES.flags.filter(f=>f.sev==='BLOCK');
+  const pend=gatingLines();
+  const el=document.getElementById('approve');
+  if(blocked.length){
+    el.innerHTML=`<div class="lbl" style="color:var(--m-red)">Export blocked — unmeasurable quantities</div>
+      <p style="margin-top:var(--xs)">${blocked.length} quantity categor${blocked.length>1?'ies':'y'} could not be measured.
+      A zero here is a missing measurement, not a measurement of nothing — exporting it would silently delete a cost line.</p>
+      <ul style="margin:var(--md) 0 0 var(--lg);font-size:14px">${blocked.map(b=>`<li>${b.msg}</li>`).join('')}</ul>`;
+    return;
+  }
+  if(PENDING_PROPOSALS){
+    el.innerHTML=`<div class="banner"><b style="color:var(--m-red)">Export blocked — ${PENDING_PROPOSALS} boundary proposal(s) unconfirmed.</b>
+      A model-proposed boundary is a suggestion, not geometry. Confirm or delete each one in Step 00b before any
+      quantity derived from it can leave the system.</div>`;
+    return;
+  }
+  if(pend.length){
+    el.innerHTML=`<div class="banner"><b style="color:var(--m-red)">Export blocked — review incomplete.</b>
+      ${pend.length} line(s) flagged for review have not been accepted, edited, overridden or rejected.</div>
+      <ul style="margin:0 0 0 var(--lg);font-size:14px">${pend.map(l=>
+        `<li><span style="color:var(--ink)">${l.code}</span> ${l.desc} — ${l.review.replace('_',' ')}
+         ${l.rstate==='STALE'?'<span class="pill p-stale">STALE</span>':''}</li>`).join('')}</ul>
+      <p style="margin-top:var(--md);font-size:13px;color:var(--muted)">Select each line in the bill above to resolve it.</p>`;
+    return;
+  }
+  const ov=BOQR.lines.filter(l=>l.provenanceBroken);
+  el.innerHTML=`
+    ${TIER!=='A'?`<div class="banner"><b style="color:var(--warning)">Tier ${TIER} source.</b>
+      Geometry here was ${ROUTE.kind==='raster'?'traced or confirmed by a human over a raster image':'lifted from PDF paths'},
+      and the scale came from one operator-supplied dimension. These quantities are not equivalent to Tier A and the
+      export says so.</div>`:''}
+    <div class="banner okb"><b style="color:var(--success)">All required reviews resolved.</b>
+      ${AUDIT.length} decision(s) on record.${ov.length?` <span style="color:var(--warning)">${ov.length} line(s) carry an operator override and are no longer traceable to the drawing — this is stated on the export.</span>`:''}</div>
+    <div class="lbl">Named approval</div>
+    <div class="mstripe" style="margin:var(--sm) 0 var(--md)"></div>
+    <p style="font-size:14px">The export carries the approver's name, the parser and ruleset versions, the resolved units and every recorded decision — so the document can be reproduced and defended later.</p>
+    <div class="row" style="margin-top:var(--lg)">
+      <input id="who" placeholder="Approver name" value="${reviewer()}"
+        style="width:280px;height:48px;background:var(--surface-card);color:var(--ink);border:1px solid var(--hairline);border-radius:0;padding:0 16px;font-family:inherit;font-weight:300;font-size:16px" />
+      <button class="solid" onclick="exportCSV()">Approve &amp; export CSV</button>
+    </div>
+    <p id="stamp" style="margin-top:var(--md);font-size:12px;color:var(--muted)"></p>`;
+}
+
+function exportCSV(){
+  const who=(document.getElementById('who').value||'').trim();
+  if(!who){ document.getElementById('stamp').textContent='Enter an approver name — an unsigned BOQ is not exportable.'; return; }
+  const stamp=`Reviewed and approved by ${who} · ${new Date().toISOString().slice(0,10)} · INPUT TIER ${TIER} (${(ROUTE&&ROUTE.kind||'').toUpperCase()}) · parser v0.1 · ruleset v0.1 · units ${RES.gate.unit} · wall height ${document.getElementById('wh').value} m · wall thickness ${document.getElementById('wt').value} m`;
+  const rows=[['Code','Description','Unit','Qty','Rate','Amount','Confidence','Source','Review','Reviewer','Reason','Source handles']];
+  for(const l of [...BOQR.lines].sort((a,b)=>b.amount-a.amount)){
+    rows.push([l.code,l.desc+(l.excluded?' [REJECTED - EXCLUDED]':''),l.unit,
+      l.qty.toFixed(3),l.rate,l.excluded?0:Math.round(l.amount),l.confidence,
+      l.provenanceBroken?'OPERATOR OVERRIDE - not traceable to drawing':'measured from drawing',
+      l.rstate||'PENDING',l.review_by||'',l.review_reason||'',l.handles.join(' ')]);
+  }
+  rows.push([]); rows.push(['TOTAL (excluding rejected)','','','','',Math.round(BOQR.total)]);
+  rows.push([]); rows.push(['AUDIT TRAIL']);
+  rows.push(['Time','By','Line','Action','Detail']);
+  for(const a of AUDIT) rows.push([a.at,a.by,a.code,a.status,a.detail]);
+  if(TIER!=='A'){
+    rows.push([]); rows.push(['GEOMETRY PROVENANCE (TIER '+TIER+')']);
+    rows.push(['Region','Source','Model label','Assignment','Area m2']);
+    for(const r of REGIONS) rows.push([r.id,
+      r.source==='confirmed'?'model-proposed, human-confirmed':r.source==='traced'?'human-traced':r.source,
+      r.label||'',r.cat, CAL.unitsPerMetre?(r.area/(CAL.unitsPerMetre**2)).toFixed(3):'']);
+    rows.push(['Scale','operator-supplied: 1 m = '+(CAL.unitsPerMetre||0).toFixed(3)+' drawing units']);
+  }
+  rows.push([]); rows.push(['RESIDUAL CLASSIFICATION']);
+  rows.push(['Entity','Label','Decided by','Note']);
+  for(const k of Object.keys(VIS.results)){
+    const v=VIS.results[k];
+    rows.push([k,v.label,v.source==='human'?'human':(v.source==='gemini'?'vision model (proposal)':v.source),v.note||'']);
+  }
+  rows.push([]); rows.push(['CHECKS']);
+  for(const f of RES.flags) rows.push([f.sev,f.msg]);
+  for(const a of RES.assumptions) rows.push(['ASSUMED',a]);
+  rows.push([]); rows.push([stamp]);
+  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='BOQ_'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
+  document.getElementById('stamp').textContent=stamp;
+}
+
+/* ---------- raster canvas events ---------- */
+document.getElementById('rcv').addEventListener('click',rcvClick);
+document.getElementById('rcv').addEventListener('mousemove',e=>{
+  if(RAS.mode==='trace'&&RAS.draft.length){ drawRaster();
+    const g=document.getElementById('rcv').getContext('2d'); const p=rcvXY(e);
+    const last=RAS.draft[RAS.draft.length-1];
+    g.strokeStyle='rgba(255,255,255,.5)'; g.setLineDash([3,3]); g.beginPath();
+    g.moveTo(RAS.offX+last[0]*RAS.scaleImg,RAS.offY+last[1]*RAS.scaleImg);
+    g.lineTo(RAS.offX+p[0]*RAS.scaleImg,RAS.offY+p[1]*RAS.scaleImg); g.stroke(); g.setLineDash([]); }
+});
+window.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&RAS.mode==='trace'&&RAS.draft.length>2){ e.preventDefault(); closeRegion(); }
+  if(e.key==='Escape'){ RAS.draft=[]; drawRaster(); }
+});
+window.addEventListener('resize',()=>{ if(RAS.img) drawRaster(); });
+
+/* ---------- file input ---------- */
+document.getElementById('file').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(f) handleFile(f);
+});
+const dz=document.getElementById('drop');
+['dragenter','dragover'].forEach(k=>dz.addEventListener(k,e=>{e.preventDefault();dz.classList.add('over');}));
+['dragleave','drop'].forEach(k=>dz.addEventListener(k,e=>{e.preventDefault();dz.classList.remove('over');}));
+dz.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+</script>
+</body>
+</html>
