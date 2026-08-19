@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BOQ operator</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #101214; color: #f5f7fa; }
+      body { max-width: 1120px; margin: 0 auto; padding: 3rem 1.25rem; }
+      h1 { margin-bottom: .4rem; } p { color: #abb4c0; } section { margin-top: 2rem; padding: 1.25rem; border: 1px solid #323944; }
+      button, input { font: inherit; padding: .7rem .9rem; } button { cursor: pointer; background: #edf3ff; color: #111827; border: 0; font-weight: 700; }
+      button:disabled { opacity: .6; cursor: wait; } #run-summary { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
+      .stage { border: 1px solid #46505e; padding: .35rem .6rem; text-transform: capitalize; } .completed { border-color: #43b581; color: #70d6a0; }
+      .running { border-color: #7ea6ff; color: #a8c2ff; } .failed { border-color: #f27a7a; color: #ffaaaa; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: .9rem; } th, td { padding: .7rem; text-align: left; border-bottom: 1px solid #323944; vertical-align: top; }
+      th { color: #aeb8c5; } code { font-size: .82em; } .error { color: #ffaaaa; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Clean DXF to BOQ</h1>
+      <p>Upload a clean DXF to create a versioned source document and deterministic, source-backed BOQ.</p>
+    </header>
+    <section>
+      <h2>Upload clean DXF</h2>
+      <form id="upload-form">
+        <input id="drawing" name="drawing" type="file" accept=".dxf" required>
+        <button type="submit">Create processing run</button>
+      </form>
+      <p id="message" role="status"></p>
+    </section>
+    <section id="run" hidden>
+      <h2>Processing run</h2>
+      <div id="run-summary"></div>
+      <button id="reprocess" type="button" hidden>Reprocess this source</button>
+    </section>
+    <section id="review" hidden>
+      <h2>Reviewable BOQ</h2>
+      <table>
+        <thead><tr><th>Measurement</th><th>Quantity</th><th>Unit</th><th>Confidence evidence</th><th>Measurement status</th><th>Provenance</th></tr></thead>
+        <tbody id="boq-lines"></tbody>
+      </table>
+    </section>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
