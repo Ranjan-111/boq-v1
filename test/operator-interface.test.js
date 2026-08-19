@@ -68,3 +68,116 @@ test('operator interface explains an unsafe unit input and offers an explicit fa
   assert.equal(await page.locator('#boq-lines tr').count(), 0);
   await page.close();
 });
+
+test('operator browser flow displays project rollup and storey provenance', async () => {
+  const page = await browser.newPage();
+  await page.goto(baseUrl);
+  await page.getByPlaceholder('Project name').fill('Browser multi-floor project');
+  await page.getByRole('button', { name: 'Create project' }).click();
+  await page.getByPlaceholder('Building name').fill('Main building');
+  await page.getByRole('button', { name: 'Add building' }).click();
+  await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '1');
+  await page.selectOption('#building-select', { label: 'Main building' });
+  await page.getByPlaceholder('Storey name').fill('Ground floor');
+  await page.getByRole('button', { name: 'Add storey' }).click();
+  await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '2');
+  assert.equal(await page.locator('#storey-select').inputValue(), '');
+  await page.selectOption('#building-select', { label: 'Main building' });
+  await page.selectOption('#storey-select', { label: 'Ground floor' });
+  await page.locator('#typical-multiplier').fill('2');
+  await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'clean-plan.dxf'));
+  await page.getByRole('button', { name: 'Create processing run' }).click();
+  await page.waitForFunction(() => document.querySelector('#rollup-summary').textContent.includes('Browser multi-floor project'));
+  await page.waitForFunction(() => document.querySelector('#rollup').hidden === false);
+  const rollup = page.locator('#rollup');
+  assert.match(await rollup.textContent(), /Main building \/ Ground floor/);
+  assert.match(await rollup.textContent(), /src_\d+ v1/);
+  assert.match(await rollup.textContent(), /Ground floor/);
+  await page.close();
+});
+
+test('operator browser flow reassigns the current source and refreshes rollup provenance', async () => {
+  const page = await browser.newPage();
+  await page.goto(baseUrl);
+  await page.getByPlaceholder('Project name').fill('Browser reassignment project');
+  await page.getByRole('button', { name: 'Create project' }).click();
+  await page.getByPlaceholder('Building name').fill('Main building');
+  await page.getByRole('button', { name: 'Add building' }).click();
+  await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '1');
+  await page.selectOption('#building-select', { label: 'Main building' });
+  await page.getByPlaceholder('Storey name').fill('Ground floor');
+  await page.getByRole('button', { name: 'Add storey' }).click();
+  await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '2');
+  await page.selectOption('#building-select', { label: 'Main building' });
+  await page.getByPlaceholder('Storey name').fill('First floor');
+  await page.getByRole('button', { name: 'Add storey' }).click();
+  await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '3');
+  assert.equal(await page.locator('#storey-select').inputValue(), '');
+  await page.selectOption('#building-select', { label: 'Main building' });
+  await page.selectOption('#storey-select', { label: 'Ground floor' });
+  await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'clean-plan.dxf'));
+  await page.getByRole('button', { name: 'Create processing run' }).click();
+  await page.waitForFunction(() => document.querySelector('#rollup').hidden === false);
+  await page.selectOption('#storey-select', { label: 'First floor' });
+  await page.locator('#typical-multiplier').fill('2');
+  await page.getByRole('button', { name: 'Reassign current source' }).click();
+  await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes(': completed'));
+  await page.waitForFunction(() => document.querySelector('#rollup').textContent.includes('First floor'));
+  const rollup = page.locator('#rollup');
+  assert.match(await rollup.textContent(), /First floor: 55.44 m²/);
+  assert.match(await rollup.textContent(), /typical-storey multiplier: ×2/);
+  await page.close();
+});
+
+test('operator surfaces building creation network failures', async () => {
+  const page = await browser.newPage();
+  await page.goto(baseUrl);
+  await page.getByPlaceholder('Project name').fill('Browser error project');
+  await page.getByRole('button', { name: 'Create project' }).click();
+  await page.route('**/api/projects/*/buildings', (route) => route.abort());
+  await page.getByPlaceholder('Building name').fill('Main building');
+  await page.getByRole('button', { name: 'Add building' }).click();
+  await page.waitForFunction(() => document.querySelector('#project-status').textContent.includes('Building creation failed'));
+  await page.close();
+});
+
+test('operator can select any source revision and reassign it to building or project scope', async () => {
+  const page = await browser.newPage();
+  await page.goto(baseUrl);
+  await page.getByPlaceholder('Project name').fill('Browser source revision project');
+  await page.getByRole('button', { name: 'Create project' }).click();
+  await page.getByPlaceholder('Building name').fill('Main building');
+  await page.getByRole('button', { name: 'Add building' }).click();
+  await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '1');
+  await page.selectOption('#building-select', { label: 'Main building' });
+  await page.getByPlaceholder('Storey name').fill('Ground floor');
+  await page.getByRole('button', { name: 'Add storey' }).click();
+  await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '2');
+  await page.selectOption('#building-select', { label: 'Main building' });
+  await page.selectOption('#storey-select', { label: 'Ground floor' });
+  await page.locator('#source-sheet').fill('A-GROUND');
+  await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'clean-plan.dxf'));
+  await page.getByRole('button', { name: 'Create processing run' }).click();
+  await page.waitForFunction(() => document.querySelector('#rollup').hidden === false);
+
+  await page.locator('#source-sheet').fill('A-SECOND');
+  await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'clean-plan.dxf'));
+  await page.getByRole('button', { name: 'Create processing run' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('#source-document-select option').length === 3);
+  assert.match(await page.locator('#source-document-select').textContent(), /A-GROUND/);
+
+  await page.locator('#source-document-select').selectOption({ index: 1 });
+  await page.selectOption('#reassignment-scope', 'building');
+  await page.locator('#typical-multiplier').fill('1');
+  await page.getByRole('button', { name: 'Reassign current source' }).click();
+  await page.waitForFunction(() => document.querySelector('#reassign-source').dataset.state === 'running');
+  await page.waitForFunction(() => document.querySelector('#rollup').textContent.includes('Main building: 27.72 m²'));
+  assert.match(await page.locator('#rollup').textContent(), /Main building: 27.72 m²/);
+
+  await page.selectOption('#reassignment-scope', 'project');
+  await page.getByRole('button', { name: 'Reassign current source' }).click();
+  await page.waitForFunction(() => document.querySelector('#reassign-source').dataset.state === 'running');
+  await page.waitForFunction(() => document.querySelector('#rollup').textContent.includes('Project scope: 27.72 m²'));
+  assert.match(await page.locator('#rollup').textContent(), /Project scope: 27.72 m²/);
+  await page.close();
+});
