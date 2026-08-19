@@ -22,6 +22,30 @@
       <p>Upload a DXF to create a versioned source document and deterministic, source-backed BOQ. Units must come from the file or an explicit operator decision.</p>
     </header>
     <section>
+      <h2>Project workspace</h2>
+      <form id="project-form">
+        <input id="project-name" name="name" placeholder="Project name" required>
+        <button type="submit">Create project</button>
+      </form>
+      <p id="project-status" role="status"></p>
+      <div id="project-controls" hidden>
+        <form id="building-form"><input id="building-name" placeholder="Building name" required><button type="submit">Add building</button></form>
+        <label>Building <select id="building-select"></select></label>
+        <form id="storey-form"><input id="storey-name" placeholder="Storey name" required><button type="submit">Add storey</button></form>
+        <label>Storey <select id="storey-select"></select></label>
+        <label>Source document <select id="source-document-select"><option value="">Select a source document…</option></select></label>
+        <label>Reassignment target <select id="reassignment-scope">
+          <option value="storey">Storey</option>
+          <option value="building">Building</option>
+          <option value="project">Project</option>
+        </select></label>
+        <input id="source-sheet" placeholder="Source sheet (optional)">
+        <label>Typical-storey multiplier <input id="typical-multiplier" type="number" min="1" step="1" value="1"></label>
+        <p>Multiplier is applied only when explicitly entered and is shown in the run provenance.</p>
+        <button id="reassign-source" type="button" hidden>Reassign current source</button>
+      </div>
+    </section>
+    <section>
       <h2>Upload clean DXF</h2>
       <form id="upload-form">
         <input id="drawing" name="drawing" type="file" accept=".dxf" required>
@@ -46,6 +70,14 @@
       <table>
         <thead><tr><th>Measurement</th><th>Quantity</th><th>Unit</th><th>Confidence evidence</th><th>Measurement status</th><th>Provenance</th></tr></thead>
         <tbody id="boq-lines"></tbody>
+      </table>
+    </section>
+    <section id="rollup" hidden>
+      <h2>Project rollup</h2>
+      <p id="rollup-summary"></p>
+      <table>
+        <thead><tr><th>Measurement</th><th>Project quantity</th><th>Building / storey drill-down</th><th>Source provenance</th></tr></thead>
+        <tbody id="rollup-lines"></tbody>
       </table>
     </section>
     <script src="/app.js" defer></script>
