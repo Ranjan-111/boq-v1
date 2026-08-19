@@ -1,7 +1,7 @@
 const { createServer: createHttpServer } = require('node:http');
 const { readFile } = require('node:fs/promises');
 const { join } = require('node:path');
-const { createApplication, InputError, NotFoundError } = require('./application');
+const { createApplication, InputError, NotFoundError, ExportBlockedError } = require('./application');
 
 function createServer(application = createApplication()) {
   return createHttpServer(async (request, response) => {
@@ -15,14 +15,21 @@ function createServer(application = createApplication()) {
         const processingRun = application.startProcessing(sourceDocument.id);
         return sendJson(response, 202, { sourceDocument, processingRun });
       }
+      const sourceMatch = /^\/api\/source-documents\/(src_\d+)$/.exec(url.pathname);
+      if (request.method === 'GET' && sourceMatch) return sendJson(response, 200, application.getSourceDocument(sourceMatch[1]));
       const runMatch = /^\/api\/runs\/(run_\d+)$/.exec(url.pathname);
       if (request.method === 'GET' && runMatch) return sendJson(response, 200, application.getRun(runMatch[1]));
       const reprocessMatch = /^\/api\/runs\/(run_\d+)\/reprocess$/.exec(url.pathname);
       if (request.method === 'POST' && reprocessMatch) return sendJson(response, 202, { processingRun: application.reprocess(reprocessMatch[1]) });
+      const exportMatch = /^\/api\/runs\/(run_\d+)\/export$/.exec(url.pathname);
+      if (request.method === 'POST' && exportMatch) return sendJson(response, 200, application.exportRun(exportMatch[1]));
       return sendJson(response, 404, { error: 'Not found.' });
     } catch (error) {
-      const status = error instanceof InputError ? 422 : error instanceof NotFoundError ? 404 : 500;
-      return sendJson(response, status, { error: error.message || 'Unexpected server error.' });
+      const status = error instanceof ExportBlockedError ? 409 : error instanceof InputError ? 422 : error instanceof NotFoundError ? 404 : 500;
+      const body = error instanceof ExportBlockedError
+        ? { error: error.message, exportable: false, ...error.details }
+        : { error: error.message || 'Unexpected server error.' };
+      return sendJson(response, status, body);
     }
   });
 }

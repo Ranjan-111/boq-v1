@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",
-    "check": "node --check src/server.js && node --check src/application.js && node --check public/app.js && node --check test/operator-interface.test.js"
+    "test:contract": "node --test test/issue1-contract.test.js",
+    "check": "node --check src/server.js && node --check src/application.js && node --check vision.js && node --check public/app.js && node --check test/operator-interface.test.js && node --check test/issue1-contract.test.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1"

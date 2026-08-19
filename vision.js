@@ -106,11 +106,8 @@
   /* Structural guarantee: whatever comes back, we keep only a label that
      exists in the ontology. Numbers cannot survive this function. */
   function coerceLabel(raw) {
-    const up = String(raw || '').toUpperCase();
-    for (const t of ONTOLOGY) {
-      if (new RegExp('\\b' + t + '\\b').test(up)) return t;
-    }
-    return 'UNKNOWN';
+    const up = String(raw || '').trim().toUpperCase();
+    return ONTOLOGY.includes(up) ? up : 'UNKNOWN';
   }
 
   const BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -228,36 +225,38 @@
     'Do not guess the drawing scale; a human supplies it.';
 
   function parseBoxes(raw, imgW, imgH) {
-    let txt = String(raw || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-    let arr = null;
-    try { arr = JSON.parse(txt); } catch (e) {
-      const m = /\[[\s\S]*\]/.exec(txt);
-      if (m) { try { arr = JSON.parse(m[0]); } catch (e2) { } }
-    }
-    if (arr && !Array.isArray(arr)) arr = arr.boxes || arr.objects || null;
+    let arr;
+    try { arr = JSON.parse(String(raw || '').trim()); } catch (e) { return []; }
     if (!Array.isArray(arr)) return [];
     const out = [];
     for (const it of arr) {
-      const b = it && (it.box_2d || it.box || it.bbox);
-      if (!Array.isArray(b) || b.length < 4) continue;
-      const [y0, x0, y1, x1] = b.map(Number);
-      if ([y0, x0, y1, x1].some(v => !isFinite(v))) continue;
+      if (!it || typeof it !== 'object' || Array.isArray(it)) continue;
+      const keys = Object.keys(it);
+      if (keys.length !== 2 || !keys.includes('box_2d') || !keys.includes('label')) continue;
+      const b = it.box_2d;
+      if (!Array.isArray(b) || b.length !== 4 || b.some(v => typeof v !== 'number' || !Number.isFinite(v))) continue;
+      const [y0, x0, y1, x1] = b;
+      if (!(0 <= y0 && y0 < y1 && y1 <= 1000 && 0 <= x0 && x0 < x1 && x1 <= 1000)) continue;
       // normalized 0-1000, y first, top-left origin
-      const X0 = Math.min(x0, x1) / 1000 * imgW, X1 = Math.max(x0, x1) / 1000 * imgW;
-      const Y0 = Math.min(y0, y1) / 1000 * imgH, Y1 = Math.max(y0, y1) / 1000 * imgH;
+      const X0 = x0 / 1000 * imgW, X1 = x1 / 1000 * imgW;
+      const Y0 = y0 / 1000 * imgH, Y1 = y1 / 1000 * imgH;
       // drop degenerate slivers: a real room or fixture is never a handful of pixels.
       // absolute pixel floors are useless across image sizes, so scale the test.
       if ((X1 - X0) < imgW * 0.01 || (Y1 - Y0) < imgH * 0.01) continue;
       if ((X1 - X0) * (Y1 - Y0) < imgW * imgH * 0.0005) continue;
-      out.push({ label: coerceRasterLabel(it.label), box: [X0, Y0, X1, Y1] });
+      const label = coerceRasterLabel(it.label);
+      if (label === 'UNKNOWN') continue;
+      out.push({ label, box: [X0, Y0, X1, Y1] });
     }
     return out;
   }
 
   function coerceRasterLabel(raw) {
-    const up = String(raw || '').toUpperCase().replace(/[^A-Z_ ]/g, ' ');
-    for (const t of RASTER_CLASSES) if (new RegExp('\\b' + t.replace('_', '[ _]') + '\\b').test(up)) return t;
-    if (/\bLIVING|BEDROOM|KITCHEN|BATH|TOILET|HALL|DINING|BALCON/.test(up)) return 'ROOM';
+    const up = String(raw || '').trim().toUpperCase().replace(/[^A-Z_ ]/g, ' ').replace(/\s+/g, ' ');
+    for (const t of RASTER_CLASSES) {
+      if (up === t || up === t.replace('_', ' ')) return t;
+    }
+    if (/^(LIVING|BEDROOM|KITCHEN|BATH|TOILET|HALL|DINING|BALCON)( ROOM)?$/.test(up)) return 'ROOM';
     return 'UNKNOWN';
   }
 
