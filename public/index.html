@@ -19,12 +19,19 @@
   <body>
     <header>
       <h1>Clean DXF to BOQ</h1>
-      <p>Upload a clean DXF to create a versioned source document and deterministic, source-backed BOQ.</p>
+      <p>Upload a DXF to create a versioned source document and deterministic, source-backed BOQ. Units must come from the file or an explicit operator decision.</p>
     </header>
     <section>
       <h2>Upload clean DXF</h2>
       <form id="upload-form">
         <input id="drawing" name="drawing" type="file" accept=".dxf" required>
+        <label for="fallback-unit">Fallback unit (only when the DXF unit is missing or unsupported)</label>
+        <select id="fallback-unit" name="fallbackUnit">
+          <option value="">No fallback — require source evidence</option>
+          <option value="millimetres">Millimetres</option>
+          <option value="centimetres">Centimetres</option>
+          <option value="metres">Metres</option>
+        </select>
         <button type="submit">Create processing run</button>
       </form>
       <p id="message" role="status"></p>

@@ -36,11 +36,22 @@ async function readUpload(request) {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
   const parts = Buffer.concat(chunks).toString('utf8').split(`--${boundary}`);
-  const drawing = parts.find((part) => /name="drawing"/.test(part));
-  const filename = /filename="([^"]+)"/.exec(drawing || '')?.[1];
-  const separator = drawing?.indexOf('\r\n\r\n');
-  if (!drawing || !filename || separator === -1) throw new InputError('A DXF drawing field is required.');
-  return { filename, content: drawing.slice(separator + 4).replace(/\r\n$/, '') };
+  const fields = {};
+  let drawingPart;
+  for (const part of parts) {
+    const name = /name="([^"]+)"/.exec(part)?.[1];
+    const separator = part.indexOf('\r\n\r\n');
+    if (!name || separator === -1) continue;
+    const value = part.slice(separator + 4).replace(/\r\n$/, '');
+    if (name === 'drawing') drawingPart = { part, value, filename: /filename="([^"]+)"/.exec(part)?.[1] };
+    else fields[name] = value;
+  }
+  if (!drawingPart?.filename) throw new InputError('A DXF drawing field is required.');
+  return {
+    filename: drawingPart.filename,
+    content: drawingPart.value,
+    fallbackUnit: fields.fallbackUnit
+  };
 }
 
 function sendJson(response, status, body) {

@@ -56,8 +56,15 @@ async function pollRun() {
 }
 
 function renderRun(run) {
+  const unitStatus = run.units
+    ? Object.assign(document.createElement('span'), {
+      className: `stage ${run.units.source === 'operator-assumption' ? 'running' : 'completed'}`,
+      textContent: `units: ${run.units.name} (${run.units.source})`
+    })
+    : null;
   runSummary.replaceChildren(...[
     Object.assign(document.createElement('strong'), { textContent: `${run.id}: ${run.status}` }),
+    ...(unitStatus ? [unitStatus] : []),
     ...run.stages.map((stage) => {
       const element = document.createElement('span');
       element.className = `stage ${stage.status}`;
