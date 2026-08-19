@@ -1,5 +1,7 @@
 const { createHash } = require('node:crypto');
 const { DXF_VERSIONS, inspectDxf, measureDxf, UNIT_DEFINITIONS, InputError } = require('./dxf');
+const { asBytes, sniffContent } = require('./ingestion/sniff');
+const { inspectPdf, PDF_VERSIONS } = require('./ingestion/pdf');
 
 const VERSIONS = DXF_VERSIONS;
 const PROCESSING_STAGE_DELAY_MS = 150;
@@ -73,13 +75,14 @@ function createApplication({ schedule = setTimeout } = {}) {
       sourceDocumentId: sourceDocument.id,
       sourceDocumentVersion: sourceDocument.version,
       contentSha256: sourceDocument.contentSha256,
+      sourceBoqVersionId: sourceDocument.boqVersionId,
       boqVersionId: resolvedBoqVersionId,
       typicalMultiplier: sourceDocument.typicalMultiplier
     };
   }
   function invalidateRuns(sourceDocumentId) {
     for (const run of runs.values()) {
-      if (run.sourceDocumentId === sourceDocumentId && ['ingestion', 'measurement', 'boq', 'completed'].includes(run.status)) run.superseded = true;
+      if (run.sourceDocumentId === sourceDocumentId && ['ingestion', 'awaiting_setup', 'awaiting_calibration', 'awaiting_trace', 'awaiting_confirmation', 'measurement', 'boq', 'completed'].includes(run.status)) run.superseded = true;
     }
   }
 
@@ -119,10 +122,12 @@ function createApplication({ schedule = setTimeout } = {}) {
   }
 
   function createSourceDocument({ filename, content, fallbackUnit, projectId, buildingId, storeyId, sourceSheet, sheet, boqVersionId, typicalMultiplier = 1, typicalStoreyMultiplier }) {
-    if (isDwg(filename, content)) {
+    const bytes = asBytes(content);
+    const sniffed = sniffContent(bytes);
+    if (sniffed.format === 'dwg') {
       throw new InputError('DWG files are refused. Use a native DXF export from the authoring CAD application; no automatic conversion is performed.');
     }
-    if (!/\.dxf$/i.test(filename || '')) throw new InputError('Only DXF files can be submitted.');
+    if (!['dxf', 'pdf'].includes(sniffed.format)) throw new InputError('Unsupported drawing format. Submit a native DXF or born-digital PDF.');
 
     const explicitUnit = normalizeUnit(fallbackUnit);
     if (fallbackUnit !== undefined && fallbackUnit !== null && fallbackUnit !== '' && !explicitUnit) {
@@ -136,8 +141,12 @@ function createApplication({ schedule = setTimeout } = {}) {
       id: `src_${String(++sourceSequence).padStart(4, '0')}`,
       filename,
       version: previousVersions.reduce((highest, document) => Math.max(highest, document.version), 0) + 1,
-      content,
-      contentSha256: createHash('sha256').update(content).digest('hex'),
+      content: bytes,
+      contentSha256: createHash('sha256').update(bytes).digest('hex'),
+      byteLength: bytes.length,
+      mediaType: sniffed.mediaType,
+      format: sniffed.format,
+      ingestVersion: sniffed.format === 'pdf' ? 'pdf-native-v1' : 'dxf-v1',
       fallbackUnit: explicitUnit,
       ...assignment
     };
@@ -160,7 +169,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     return Object.assign(presentSourceDocument(sourceDocument), { processingRun });
   }
 
-  function startProcessing(sourceDocumentId, { boqVersionId } = {}) {
+  function startProcessing(sourceDocumentId, { boqVersionId, replaySetup } = {}) {
     const sourceDocument = sourceDocuments.get(sourceDocumentId);
     if (!sourceDocument) throw new NotFoundError('Source document not found.');
 
@@ -170,7 +179,7 @@ function createApplication({ schedule = setTimeout } = {}) {
       id: `run_${String(++runSequence).padStart(4, '0')}`,
       sequence: runSequence,
       sourceDocumentId,
-      versions: { ...VERSIONS },
+      versions: sourceDocument.format === 'pdf' ? { ...PDF_VERSIONS } : { ...VERSIONS },
       projectId: sourceDocument.projectId || null,
       buildingId: sourceDocument.buildingId || null,
       storeyId: sourceDocument.storeyId || null,
@@ -182,18 +191,56 @@ function createApplication({ schedule = setTimeout } = {}) {
       stages: stageState('ingestion', 'running'),
       units: null,
       boq: null,
-      error: null
+      error: null,
+      pages: [],
+      setup: sourceDocument.format === 'pdf'
+        ? { route: 'vector-pdf', status: 'pending', pages: [] }
+        : { route: 'dxf', status: 'not_required', pages: [] },
+      blockedReasons: sourceDocument.format === 'pdf' ? ['Inspect the PDF, confirm page scale, and select vector regions before measurement.'] : [],
+      exportable: false
     };
+    if (sourceDocument.format === 'pdf' && replaySetup?.status === 'ready') run.setupReplay = structuredClone(replaySetup);
     runs.set(run.id, run);
     schedule(() => advance(run), PROCESSING_STAGE_DELAY_MS);
     return presentRun(run, sourceDocument);
   }
 
-  function advance(run) {
+  async function advance(run) {
     if (run.superseded) return;
     if (run.status === 'ingestion') {
       try {
         const document = sourceDocuments.get(run.sourceDocumentId);
+        if (document.format === 'pdf') {
+          const inspection = await inspectPdf(document.content, document);
+          run.versions = { ...inspection.versions };
+          run.pages = inspection.pages;
+          const rasterPage = inspection.pages.find((page) => page.kind !== 'vector');
+          run.inspection = { format: inspection.format, ingestVersion: inspection.ingestVersion, pageCount: inspection.pages.length, route: rasterPage ? 'raster' : 'native-vector' };
+          if (rasterPage) {
+            completeStage(run, 'ingestion');
+            const mixed = inspection.pages.some((page) => page.kind === 'mixed');
+            const blockedReason = mixed ? 'Mixed content retained native metadata; raster regions require calibration before tracing or measurement.' : 'Raster calibration is required before tracing or measurement.';
+            run.setup = { route: 'raster', status: 'pending', pages: inspection.pages.map((page) => ({ sourcePageId: page.sourcePageId, phase: 'calibration', revision: 0, blockedReasons: [page.kind === 'mixed' ? blockedReason : 'Raster calibration is required before tracing or measurement.'] })) };
+            run.status = 'awaiting_calibration';
+            run.blockedReasons = [mixed ? blockedReason : 'This PDF contains an image-only page. Complete raster calibration and tracing in the raster workflow before measurement.'];
+            return;
+          }
+          run.setup.pages = inspection.pages.map((page) => ({ sourcePageId: page.sourcePageId, phase: 'scale', revision: 0, blockedReasons: ['Page scale and selected regions are required.'] }));
+          completeStage(run, 'ingestion');
+          if (run.setupReplay && canReplaySetup(run.setupReplay, run, document)) {
+            run.setup = structuredClone(run.setupReplay);
+            delete run.setupReplay;
+            run.blockedReasons = [];
+            run.status = 'measurement';
+            setStage(run, 'measurement', 'running');
+            schedule(() => advance(run), PROCESSING_STAGE_DELAY_MS);
+            return;
+          }
+          delete run.setupReplay;
+          run.status = 'awaiting_setup';
+          run.blockedReasons = ['Confirm a drawing scale for each page and select vector regions before measurement.'];
+          return;
+        }
         const inspection = inspectDxf(document, { versions: VERSIONS });
         run.parsedDocument = inspection.document;
         run.units = inspection.units;
@@ -202,7 +249,7 @@ function createApplication({ schedule = setTimeout } = {}) {
         setStage(run, 'measurement', 'running');
         schedule(() => advance(run), PROCESSING_STAGE_DELAY_MS);
       } catch (error) {
-        failRun(run, error, 'ingestion');
+        failRun(run, error, 'ingestion', sourceDocuments.get(run.sourceDocumentId));
       }
       return;
     }
@@ -210,13 +257,15 @@ function createApplication({ schedule = setTimeout } = {}) {
     if (run.status === 'measurement') {
       try {
         const document = sourceDocuments.get(run.sourceDocumentId);
-        run.boq = measureDxf(document, run.units, run.parsedDocument, { versions: VERSIONS, typicalMultiplier: run.typicalMultiplier });
+        run.boq = document.format === 'pdf'
+          ? measurePdf(document, run)
+          : measureDxf(document, run.units, run.parsedDocument, { versions: VERSIONS, typicalMultiplier: run.typicalMultiplier });
         completeStage(run, 'measurement');
         run.status = 'boq';
         setStage(run, 'boq', 'running');
         schedule(() => advance(run), PROCESSING_STAGE_DELAY_MS);
       } catch (error) {
-        failRun(run, error, 'measurement');
+        failRun(run, error, 'measurement', sourceDocuments.get(run.sourceDocumentId));
       }
       return;
     }
@@ -224,6 +273,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     if (run.status === 'boq') {
       completeStage(run, 'boq');
       run.status = 'completed';
+      run.exportable = true;
     }
   }
 
@@ -233,11 +283,39 @@ function createApplication({ schedule = setTimeout } = {}) {
     return presentRun(run, sourceDocuments.get(run.sourceDocumentId));
   }
 
+  function confirmSourceSetup(runId, setup) {
+    const run = runs.get(runId);
+    if (!run) throw new NotFoundError('Processing run not found.');
+    if (run.superseded || !isCurrentSnapshot(run, sourceDocuments.get(run.sourceDocumentId))) throw new ConflictError('This run no longer matches the current source assignment. Reprocess the current source assignment.');
+    if (run.status !== 'awaiting_setup') throw new ConflictError('This run is not awaiting PDF setup.');
+    if (run.setup.route !== 'vector-pdf') throw new ConflictError('This run is awaiting raster calibration, not vector PDF setup.');
+    if (!Array.isArray(setup?.pages) || setup.pages.length !== run.pages.length) throw new InputError('Provide exactly one setup entry for each inspected PDF page.');
+    const requestedPageIds = setup.pages.map((page) => page?.sourcePageId);
+    const inspectedPageIds = run.pages.map((page) => page.sourcePageId);
+    if (new Set(requestedPageIds).size !== requestedPageIds.length || requestedPageIds.some((pageId) => !inspectedPageIds.includes(pageId))) throw new InputError('Provide exactly one setup entry for each inspected PDF page.');
+    const pages = setup.pages.map((requested) => {
+      const page = run.pages.find((candidate) => candidate.sourcePageId === requested.sourcePageId);
+      if (!page) throw new InputError(`The PDF page ${requested?.sourcePageId || '(missing)'} does not belong to this run.`);
+      const drawingUnitsPerMetre = Number(requested.scale?.drawingUnitsPerMetre);
+      if (!Number.isFinite(drawingUnitsPerMetre) || drawingUnitsPerMetre < 1e-6 || drawingUnitsPerMetre > 1e9) throw new InputError(`Page ${page.pageNumber} requires a finite drawing-units-per-metre scale between 0.000001 and 1000000000.`);
+      const selectedRegions = requested.selectedRegions;
+      if (!Array.isArray(selectedRegions) || selectedRegions.length === 0) throw new InputError(`Select at least one native vector region on PDF page ${page.pageNumber}.`);
+      if (selectedRegions.some((regionId) => !page.nativeRegionIds.includes(regionId))) throw new InputError(`A selected vector region does not belong to PDF page ${page.pageNumber}.`);
+      return { sourcePageId: page.sourcePageId, pageNumber: page.pageNumber, phase: 'scale', revision: 1, scale: { drawingUnitsPerMetre }, selectedRegions, blockedReasons: [] };
+    });
+    run.setup = { route: 'vector-pdf', status: 'ready', pages };
+    run.blockedReasons = [];
+    run.status = 'measurement';
+    setStage(run, 'measurement', 'running');
+    schedule(() => advance(run), PROCESSING_STAGE_DELAY_MS);
+    return presentRun(run, sourceDocuments.get(run.sourceDocumentId));
+  }
+
   function reprocess(runId) {
     const run = runs.get(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     if (run.superseded) throw new InputError('This processing run is superseded; reprocess the current source assignment instead.');
-    return startProcessing(run.sourceDocumentId, { boqVersionId: run.boqVersionId });
+    return startProcessing(run.sourceDocumentId, { boqVersionId: run.boqVersionId, replaySetup: run.setup });
   }
 
   function sourceDocumentsFor(ids) {
@@ -288,11 +366,13 @@ function createApplication({ schedule = setTimeout } = {}) {
           provenance: { scope, scopeId, sourceContributions: [] }
         };
         line.quantity = Number((line.quantity + sourceLine.quantity).toFixed(6));
-        line.provenance.sourceContributions.push({
+        const evidence = sourceLine.provenance.sourceContributions || [null];
+        for (const detail of evidence) line.provenance.sourceContributions.push({
           ...contribution,
-          sourceHandles: sourceLine.provenance.sourceHandles,
+          ...(detail || {}),
+          sourceHandles: sourceLine.provenance.sourceHandles || [],
           runId: run.id,
-          quantity: sourceLine.quantity
+          quantity: detail?.quantity ?? sourceLine.quantity
         });
         lines.set(sourceLine.measurement, line);
       }
@@ -341,7 +421,63 @@ function createApplication({ schedule = setTimeout } = {}) {
     return assignSourceDocument(sourceDocumentId, { projectId: storey.projectId, buildingId: storey.buildingId, storeyId, ...(typicalMultiplier === undefined && typicalStoreyMultiplier === undefined ? {} : { typicalMultiplier: typicalStoreyMultiplier ?? typicalMultiplier }) });
   }
 
-  return { createProject, createBuilding, createStorey, createBoqVersion, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, getRun, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+  return { createProject, createBuilding, createStorey, createBoqVersion, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, getRun, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+}
+
+function measurePdf(sourceDocument, run) {
+  const contributions = [];
+  let area = 0;
+  for (const setupPage of run.setup.pages) {
+    const page = run.pages.find((candidate) => candidate.sourcePageId === setupPage.sourcePageId);
+    const selected = page.vectorRegions.filter((region) => setupPage.selectedRegions.includes(region.id));
+    for (const region of selected) {
+      const scale = setupPage.scale.drawingUnitsPerMetre;
+      const scaleSquared = scale ** 2;
+      if (!Number.isFinite(scaleSquared) || scaleSquared <= Number.MIN_VALUE) throw new InputError(`Page ${page.pageNumber} scale cannot produce a finite area conversion.`);
+      const rawQuantity = region.area / scaleSquared * run.typicalMultiplier;
+      if (!Number.isFinite(rawQuantity)) throw new InputError(`Page ${page.pageNumber} produced a non-finite quantity; choose a practical scale or simplify the source.`);
+      const quantity = Number(rawQuantity.toFixed(6));
+      if (!Number.isFinite(quantity)) throw new InputError(`Page ${page.pageNumber} produced a non-finite quantity; choose a practical scale or simplify the source.`);
+      area = Number((area + quantity).toFixed(6));
+      if (!Number.isFinite(area)) throw new InputError(`Page ${page.pageNumber} produced a non-finite total quantity; choose a practical scale or simplify the source.`);
+      contributions.push({
+        sourceDocumentId: sourceDocument.id,
+        sourceDocumentVersion: sourceDocument.version,
+        contentSha256: sourceDocument.contentSha256,
+        sourcePageId: page.sourcePageId,
+        pageNumber: page.pageNumber,
+        nativeElementIds: [region.id],
+        coordinateSpace: page.coordinateSpace,
+        pageTransform: page.transform,
+        rotation: page.rotation,
+        geometrySource: 'native-vector',
+        parserVersion: run.versions.parser,
+        rulesetVersion: run.versions.ruleset,
+        normalizationVersion: run.versions.normalization,
+        typicalMultiplier: run.typicalMultiplier,
+        processingRunId: run.id,
+        setupRevision: setupPage.revision,
+        scale: { drawingUnitsPerMetre: setupPage.scale.drawingUnitsPerMetre },
+        selectedRegionIds: [...setupPage.selectedRegions],
+        sourceHandles: [],
+        sourceSheet: sourceDocument.sourceSheet,
+        quantity
+      });
+    }
+  }
+  return {
+    versions: run.versions,
+    ruleset: run.versions.ruleset,
+    lines: [{
+      measurement: 'floor_area',
+      label: 'Floor finish area',
+      quantity: area,
+      unit: 'm²',
+      confidence: { level: 'HIGH', evidence: ['native vector path', 'operator-selected page region'] },
+      measurementStatus: area > 0 ? 'measured' : 'measured_zero',
+      provenance: { sourceHandles: [], sourceContributions: contributions }
+    }]
+  };
 }
 
 function stageState(name, status) {
@@ -359,10 +495,44 @@ function completeStage(run, name) {
   setStage(run, name, 'completed');
 }
 
-function failRun(run, error, stageName) {
+function failRun(run, error, stageName, sourceDocument) {
   run.status = 'failed';
-  run.error = error.message;
+  const message = error.message || 'Unexpected PDF processing failure.';
+  const pageContext = error.sourcePageId ? ` Affected page: ${error.sourcePageId}.` : '';
+  run.error = sourceDocument?.format === 'pdf' && !/re-export|split the source|source assignment/i.test(message)
+    ? `PDF "${sourceDocument.filename}" could not be processed: ${message}${pageContext} Re-export a born-digital vector PDF or split the source into smaller files.`
+    : `${message}${pageContext}`;
+  run.blockedReasons = [];
+  run.exportable = false;
+  run.errorDetails = {
+    sourcePageId: error.sourcePageId || null,
+    stage: stageName,
+    adapterStage: error.stage || stageName,
+    code: error.code || (sourceDocument?.format === 'pdf' ? 'pdf_processing_failed' : 'processing_failed'),
+    retryable: error.retryable ?? false,
+    action: sourceDocument?.format === 'pdf' ? 'Re-export the affected PDF page or split the source into smaller files, then retry.' : 'Review the source and retry.'
+  };
+  if (error.limitName) Object.assign(run, { limitName: error.limitName, observed: error.observed, maximum: error.maximum });
   setStage(run, stageName, 'failed');
+}
+
+function isCurrentSnapshot(run, sourceDocument) {
+  if (!sourceDocument || !run.assignmentSnapshot) return false;
+  const snapshot = run.assignmentSnapshot;
+  return ['projectId', 'buildingId', 'storeyId', 'sourceSheet', 'typicalMultiplier', 'contentSha256']
+    .every((key) => sourceDocument[key] === snapshot[key])
+    && sourceDocument.boqVersionId === snapshot.sourceBoqVersionId
+    && sourceDocument.id === snapshot.sourceDocumentId
+    && sourceDocument.version === snapshot.sourceDocumentVersion;
+}
+
+function canReplaySetup(setup, run, sourceDocument) {
+  if (setup.route !== 'vector-pdf' || setup.status !== 'ready' || !isCurrentSnapshot(run, sourceDocument)) return false;
+  const pageIds = new Set(run.pages.map((page) => page.sourcePageId));
+  return Array.isArray(setup.pages) && setup.pages.length === pageIds.size && setup.pages.every((setupPage) => {
+    const page = run.pages.find((candidate) => candidate.sourcePageId === setupPage.sourcePageId);
+    return page && Array.isArray(setupPage.selectedRegions) && setupPage.selectedRegions.length > 0 && setupPage.selectedRegions.every((regionId) => page.nativeRegionIds.includes(regionId));
+  });
 }
 
 function presentSourceDocument(sourceDocument) {
@@ -370,6 +540,10 @@ function presentSourceDocument(sourceDocument) {
     id: sourceDocument.id,
     filename: sourceDocument.filename,
     version: sourceDocument.version,
+    mediaType: sourceDocument.mediaType,
+    format: sourceDocument.format,
+    byteLength: sourceDocument.byteLength,
+    ingestVersion: sourceDocument.ingestVersion,
     contentSha256: sourceDocument.contentSha256,
     fallbackUnit: sourceDocument.fallbackUnit ? sourceDocument.fallbackUnit.name : null,
     projectId: sourceDocument.projectId || null,
@@ -408,6 +582,13 @@ function presentRun(run, sourceDocument) {
     typicalMultiplier: run.typicalMultiplier,
     assignmentSnapshot: run.assignmentSnapshot,
     superseded: run.superseded,
+    pages: run.pages,
+    inspection: run.inspection || null,
+    setup: run.setup,
+    blockedReasons: run.blockedReasons,
+    exportable: run.exportable,
+    ...(run.limitName ? { limitName: run.limitName, observed: run.observed, maximum: run.maximum } : {}),
+    errorDetails: run.errorDetails || null,
     units: run.units,
     stages: run.stages,
     boq: run.boq,
@@ -432,11 +613,7 @@ function normalizeUnit(value) {
   return code ? UNIT_DEFINITIONS[code] : null;
 }
 
-function isDwg(filename, content) {
-  if (/\.dwg$/i.test(filename || '')) return true;
-  return /^AC10\d{2}/.test(String(content || '').slice(0, 6));
-}
-
 class NotFoundError extends Error {}
+class ConflictError extends Error {}
 
-module.exports = { createApplication, InputError, NotFoundError };
+module.exports = { createApplication, InputError, NotFoundError, ConflictError };

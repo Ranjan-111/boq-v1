@@ -47,6 +47,44 @@ test('missing DXF units fail before quantities and explain the evidence gap', as
   assert.match(run.error, /missing-units\.dxf/);
 });
 
+test('malformed PDF fails safely with actionable re-export guidance', async () => {
+  const response = await uploadDrawing(Buffer.from('%PDF-1.4\nnot a valid PDF'), 'broken-vector.pdf');
+  assert.equal(response.status, 202);
+  const run = await waitForRun((await response.json()).processingRun.id);
+  assert.equal(run.status, 'failed');
+  assert.equal(run.boq, null);
+  assert.match(run.error, /PDF|re-export|simplif/i);
+  assert.equal(run.errorDetails.stage, 'ingestion');
+  assert.equal(run.errorDetails.sourcePageId, null);
+  assert.equal(run.errorDetails.retryable, false);
+  assert.match(run.errorDetails.action, /re-export|split/i);
+});
+
+test('oversized PDF upload is rejected before PDF parsing', async () => {
+  const oversized = Buffer.alloc(10 * 1024 * 1024 + 1, 0x25);
+  oversized.write('%PDF-1.7', 0, 'ascii');
+  const response = await uploadDrawing(oversized, 'oversized-vector.pdf');
+  assert.equal(response.status, 413);
+  assert.match((await response.json()).error, /body exceeds|limit/i);
+});
+
+test('multipart parser keeps boundary-like bytes inside the drawing payload', async () => {
+  const boundary = 'boq-boundary';
+  const payload = Buffer.from(cleanPlan.replace('0\nEOF\n', `999\nraw bytes --${boundary} remain drawing content\n0\nEOF\n`));
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="drawing"; filename="boundary-bytes.dxf"\r\nContent-Type: application/dxf\r\n\r\n`),
+    payload,
+    Buffer.from(`\r\n--${boundary}--\r\n`)
+  ]);
+  const response = await fetch(`${baseUrl}/api/source-documents`, {
+    method: 'POST', headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'content-length': String(body.length) }, body
+  });
+  assert.equal(response.status, 202);
+  const runResponse = await response.json();
+  const run = await waitForRun(runResponse.processingRun.id);
+  assert.equal(run.status, 'completed');
+});
+
 test('unsupported DXF units fail before quantities and name the unsupported evidence', async () => {
   const response = await uploadDrawing(cleanPlan.replace('70\n4\n', '70\n1\n'), 'unsupported-units.dxf');
   assert.equal(response.status, 202);

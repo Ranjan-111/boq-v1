@@ -5,6 +5,9 @@ const reviewSection = document.querySelector('#review');
 const runSummary = document.querySelector('#run-summary');
 const boqLines = document.querySelector('#boq-lines');
 const reprocess = document.querySelector('#reprocess');
+const pdfSetupSection = document.querySelector('#pdf-setup');
+const pdfSetupForm = document.querySelector('#pdf-setup-form');
+const pdfPages = document.querySelector('#pdf-pages');
 const rollupSection = document.querySelector('#rollup');
 const rollupSummary = document.querySelector('#rollup-summary');
 const rollupLines = document.querySelector('#rollup-lines');
@@ -175,6 +178,27 @@ function updateReassignAvailability() {
 }
 let currentRunId = null;
 
+pdfSetupForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const pages = [...pdfPages.querySelectorAll('[data-source-page-id]')].map((pageElement) => ({
+    sourcePageId: pageElement.dataset.sourcePageId,
+    scale: { drawingUnitsPerMetre: pageElement.querySelector('input[type="number"]').value },
+    selectedRegions: [...pageElement.querySelectorAll('input[type="checkbox"]:checked')].map((input) => input.value)
+  }));
+  const button = pdfSetupForm.querySelector('button');
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/runs/${currentRunId}/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pages }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error);
+    pdfSetupSection.hidden = true;
+    await pollRun();
+  } catch (error) {
+    message.textContent = error.message;
+    message.className = 'error';
+  } finally { button.disabled = false; }
+});
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   await submit('/api/source-documents', new FormData(form));
@@ -221,10 +245,22 @@ async function pollRun() {
   const run = await response.json();
   renderRun(run);
   if (run.status === 'completed') {
+    pdfSetupSection.hidden = true;
     renderBoq(run.boq.lines);
     await refreshProject();
     await renderProjectRollup(run);
     reprocess.hidden = false;
+    return;
+  }
+  if (run.status === 'awaiting_setup') {
+    renderPdfSetup(run);
+    return;
+  }
+  if (run.status === 'awaiting_calibration' || run.setup?.route === 'raster') {
+    pdfSetupSection.hidden = true;
+    pdfPages.replaceChildren();
+    message.textContent = run.blockedReasons?.join(' ') || 'This source requires raster calibration before measurement.';
+    message.className = 'error';
     return;
   }
   if (run.status === 'failed') {
@@ -233,6 +269,40 @@ async function pollRun() {
     return;
   }
   setTimeout(pollRun, 50);
+}
+
+function renderPdfSetup(run) {
+  pdfSetupSection.hidden = false;
+  pdfPages.replaceChildren(...run.pages.map((page) => {
+    const section = document.createElement('fieldset');
+    section.dataset.sourcePageId = page.sourcePageId;
+    const title = document.createElement('legend');
+    title.textContent = `Page ${page.pageNumber} (${page.rotation}°) — ${page.width} × ${page.height} ${page.coordinateSpace}`;
+    section.append(title);
+    const scaleLabel = document.createElement('label');
+    scaleLabel.textContent = 'Drawing units per metre ';
+    const scale = document.createElement('input');
+    scale.type = 'number';
+    scale.min = '0.000001';
+    scale.step = 'any';
+    scale.id = `pdf-scale-page-${page.pageNumber}`;
+    scale.required = true;
+    scaleLabel.append(scale);
+    section.append(scaleLabel);
+    const text = document.createElement('p');
+    text.textContent = `Native text: ${page.nativeText.map((item) => item.text).join(' ') || 'none'}`;
+    section.append(text);
+    for (const region of page.vectorRegions) {
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = region.id;
+      checkbox.id = `pdf-region-${region.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+      label.append(checkbox, ` ${region.id} (${region.area} square drawing units)`);
+      section.append(label);
+    }
+    return section;
+  }));
 }
 
 async function renderProjectRollup(run) {
@@ -262,7 +332,8 @@ async function renderProjectRollup(run) {
       }).filter(Boolean);
       return [...direct, ...floors];
     })].join('\n');
-    const provenance = line.provenance.sourceContributions.map((contribution) => `${contribution.sourceDocumentId} v${contribution.sourceDocumentVersion} (${contribution.sourceSheet}; ${contribution.storeyId || 'project'}; typical-storey multiplier: ×${contribution.typicalMultiplier}) handles: ${contribution.sourceHandles.join(', ')}`).join('\n');
+    const scope = contribution => contribution.storeyId ? `storey ${contribution.storeyId}` : contribution.buildingId ? `building ${contribution.buildingId}` : 'project';
+    const provenance = line.provenance.sourceContributions.map((contribution) => `${contribution.sourceDocumentId} v${contribution.sourceDocumentVersion} (run ${contribution.processingRunId || contribution.runId || 'n/a'}; ${contribution.sourceSheet}; ${scope(contribution)}; page ${contribution.sourcePageId || 'n/a'}; regions ${(contribution.selectedRegionIds || contribution.nativeElementIds || []).join(', ') || 'n/a'}; scale ${contribution.scale?.drawingUnitsPerMetre || 'n/a'}; setup revision ${contribution.setupRevision || 'n/a'}; transform ${(contribution.pageTransform || []).join(',') || 'n/a'}; typical-storey multiplier: ×${contribution.typicalMultiplier}) handles: ${contribution.sourceHandles.join(', ')}`).join('\n');
     for (const value of [line.label, String(line.quantity), drilldown, provenance]) {
       const cell = document.createElement('td');
       cell.textContent = value;
@@ -297,7 +368,12 @@ function renderRun(run) {
 function renderBoq(lines) {
   boqLines.replaceChildren(...lines.map((line) => {
     const row = document.createElement('tr');
-    const provenance = `${line.provenance.sourceDocumentId} v${line.provenance.sourceDocumentVersion}\n${line.provenance.sourceHandles.join(', ')}`;
+    const contributions = line.provenance.sourceContributions || [];
+    const firstContribution = contributions[0] || {};
+    const sourceId = line.provenance.sourceDocumentId || firstContribution.sourceDocumentId || '';
+    const sourceVersion = line.provenance.sourceDocumentVersion || firstContribution.sourceDocumentVersion || '';
+    const nativeEvidence = contributions.map((contribution) => `${contribution.sourcePageId || ''} ${(contribution.sourceRegionIds || contribution.nativeElementIds || []).join(', ')} run ${contribution.processingRunId || contribution.runId || 'n/a'} scale ${contribution.scale?.drawingUnitsPerMetre || 'n/a'} transform ${(contribution.pageTransform || []).join(',') || 'n/a'}`.trim()).filter(Boolean).join('\n');
+    const provenance = `${sourceId} v${sourceVersion}\n${line.provenance.sourceHandles.join(', ')}${nativeEvidence ? `\n${nativeEvidence}` : ''}`;
     for (const value of [
       line.label,
       String(line.quantity),
