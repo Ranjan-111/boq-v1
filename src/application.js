@@ -8,6 +8,7 @@ const { LIMITS, LimitError } = require('./ingestion/limits');
 const { OCR_LIMITS, normalizeOcrResults, presentOcrBatch } = require('./ocr-results');
 const { createSourceObject, createContribution, buildProvenance, measurementStatusFor, signedSum, PROVENANCE_VERSION } = require('./provenance');
 const { createRepository } = require('./repository');
+const { normalizeAssumptions, getRuleset, listRulesets, ASSUMPTION_DEFINITIONS, DEFAULT_ASSUMPTIONS, DEFAULT_RULESET_VERSION, RuleError } = require('./rules');
 
 const VERSIONS = DXF_VERSIONS;
 const PROCESSING_STAGE_DELAY_MS = 150;
@@ -138,13 +139,113 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
 
   function createProject({ name }) {
     if (!String(name || '').trim()) throw new InputError('A project name is required.');
-    const project = { id: `project_${String(++projectSequence).padStart(4, '0')}`, name: String(name).trim(), version: 1, buildingIds: [], sourceDocumentIds: [], boqVersionIds: [], currentBoqVersionId: null };
+    const project = { id: `project_${String(++projectSequence).padStart(4, '0')}`, name: String(name).trim(), version: 1, buildingIds: [], sourceDocumentIds: [], boqVersionIds: [], currentBoqVersionId: null,
+      /* Assumptions are versioned rather than edited: a quantity measured under
+         version 1 must stay reproducible after someone changes the wall height. */
+      assumptions: { version: 1, values: { ...DEFAULT_ASSUMPTIONS }, history: [{ version: 1, at: new Date().toISOString(), reason: 'Defaults applied at project creation.', updatedBy: 'system', changed: {} }] },
+      rulesetVersion: DEFAULT_RULESET_VERSION };
     projects.set(project.id, project);
     persistProject(project);
     project.currentBoqVersionId = createBoqVersion({ projectId: project.id, label: 'Initial BOQ' }).id;
     persistProject(project);
     repository.appendAudit({ kind: 'project_created', subjectId: project.id, payload: { name: project.name } });
     return presentProject(project);
+  }
+
+  function getProjectAssumptions(projectId) {
+    const project = requireProject(projectId);
+    return {
+      version: project.assumptions.version,
+      values: { ...project.assumptions.values },
+      history: structuredClone(project.assumptions.history),
+      rulesetVersion: project.rulesetVersion,
+      currentBoqVersionId: project.currentBoqVersionId,
+      definitions: structuredClone(ASSUMPTION_DEFINITIONS),
+      availableRulesets: listRulesets()
+    };
+  }
+
+  /* Changing an assumption or a ruleset changes what the drawing measures to.
+     Both therefore re-measure every current source and cannot leave an earlier
+     approval standing -- that approval was of a different number. */
+  function updateProjectAssumptions(projectId, { values = {}, rulesetVersion, reason = '', updatedBy = 'operator' } = {}) {
+    const project = requireProject(projectId);
+    const nextRuleset = rulesetVersion === undefined ? project.rulesetVersion : getRuleset(rulesetVersion).version;
+    const merged = normalizeAssumptions({ ...project.assumptions.values, ...values });
+    const changed = {};
+    for (const name of Object.keys(ASSUMPTION_DEFINITIONS)) {
+      if (merged[name] !== project.assumptions.values[name]) changed[name] = { from: project.assumptions.values[name], to: merged[name] };
+    }
+    const rulesetChanged = nextRuleset !== project.rulesetVersion;
+    if (!Object.keys(changed).length && !rulesetChanged) return getProjectAssumptions(projectId);
+
+    project.assumptions = {
+      version: project.assumptions.version + 1,
+      values: { ...merged },
+      history: [...project.assumptions.history, { version: project.assumptions.version + 1, at: new Date().toISOString(), reason: String(reason || ''), updatedBy: String(updatedBy || 'operator'), changed, rulesetVersion: nextRuleset }]
+    };
+    project.rulesetVersion = nextRuleset;
+    persistProject(project);
+    repository.appendAudit({ kind: 'project_assumptions_changed', subjectId: project.id, payload: { version: project.assumptions.version, changed, rulesetVersion: nextRuleset, reason, updatedBy } });
+
+    const cause = [Object.keys(changed).length ? `assumption change (v${project.assumptions.version})` : null, rulesetChanged ? `ruleset change to ${nextRuleset}` : null].filter(Boolean).join(' and ');
+    staleApprovalsFor(project, cause);
+    remeasureProject(project);
+    return getProjectAssumptions(projectId);
+  }
+
+  function staleApprovalsFor(project, cause) {
+    for (const versionId of project.boqVersionIds) {
+      const version = boqVersions.get(versionId);
+      if (!version || version.status !== 'approved') continue;
+      version.status = 'stale';
+      version.staleReason = `Approved quantities no longer hold after a ${cause}.`;
+      version.staleAt = new Date().toISOString();
+      persistBoqVersion(version);
+      repository.appendAudit({ kind: 'boq_version_approval_invalidated', subjectId: version.id, payload: { cause, approvedBy: version.approvedBy } });
+    }
+  }
+
+  /* Re-measure every source currently assigned anywhere in the project. */
+  function remeasureProject(project) {
+    const scopedIds = new Set([
+      ...project.sourceDocumentIds,
+      ...project.buildingIds.flatMap((buildingId) => {
+        const building = buildings.get(buildingId);
+        return [...(building?.sourceDocumentIds || []), ...(building?.storeyIds.flatMap((storeyId) => storeys.get(storeyId)?.sourceDocumentIds || []) || [])];
+      })
+    ]);
+    for (const sourceDocumentId of scopedIds) {
+      if (!sourceDocuments.has(sourceDocumentId)) continue;
+      /* The earlier runs measured a number this project no longer stands
+         behind, so they are superseded rather than left to look current. */
+      invalidateRuns(sourceDocumentId);
+      startProcessing(sourceDocumentId);
+    }
+  }
+
+  function approveBoqVersion(boqVersionId, { approvedBy = 'operator', reason = '' } = {}) {
+    const version = boqVersions.get(boqVersionId);
+    if (!version) throw new NotFoundError('BOQ version not found.');
+    const project = requireProject(version.projectId);
+    if (version.status === 'approved') throw new ConflictError('This BOQ version is already approved.');
+    version.status = 'approved';
+    version.approvedBy = String(approvedBy || 'operator');
+    version.approvedAt = new Date().toISOString();
+    version.approvalReason = String(reason || '');
+    version.approvedAssumptionsVersion = project.assumptions.version;
+    version.approvedRulesetVersion = project.rulesetVersion;
+    delete version.staleReason;
+    delete version.staleAt;
+    persistBoqVersion(version);
+    repository.appendAudit({ kind: 'boq_version_approved', subjectId: version.id, payload: { approvedBy: version.approvedBy, assumptionsVersion: version.approvedAssumptionsVersion, rulesetVersion: version.approvedRulesetVersion } });
+    return { ...version };
+  }
+
+  function getBoqVersion(boqVersionId) {
+    const version = boqVersions.get(boqVersionId);
+    if (!version) throw new NotFoundError('BOQ version not found.');
+    return { ...version };
   }
 
   function createBuilding({ projectId, name }) {
@@ -308,12 +409,20 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
       id: `run_${String(++runSequence).padStart(4, '0')}`,
       sequence: runSequence,
       sourceDocumentId,
-      versions: sourceDocument.format === 'pdf' ? { ...PDF_VERSIONS } : ['png', 'jpeg'].includes(sourceDocument.format) ? { ...RASTER_VERSIONS } : { ...VERSIONS },
+      /* The ruleset is no longer a frozen label on the parser: it is whichever
+         ruleset this project selected, and it must agree with what the BOQ was
+         actually measured under. */
+      versions: sourceDocument.format === 'pdf' ? { ...PDF_VERSIONS } : ['png', 'jpeg'].includes(sourceDocument.format) ? { ...RASTER_VERSIONS }
+        : { ...VERSIONS, ruleset: (projects.get(sourceDocument.projectId)?.rulesetVersion) || DEFAULT_RULESET_VERSION },
       projectId: sourceDocument.projectId || null,
       buildingId: sourceDocument.buildingId || null,
       storeyId: sourceDocument.storeyId || null,
       boqVersionId: resolvedBoqVersionId,
       typicalMultiplier: sourceDocument.typicalMultiplier || 1,
+      /* Snapshotted, not looked up at measurement time: a run must be
+         reproducible after the project's policy moves on. */
+      rulesetVersion: (projects.get(sourceDocument.projectId)?.rulesetVersion) || DEFAULT_RULESET_VERSION,
+      assumptions: structuredClone(projects.get(sourceDocument.projectId)?.assumptions || { version: 1, values: { ...DEFAULT_ASSUMPTIONS }, history: [] }),
       assignmentSnapshot: assignmentSnapshot(sourceDocument, resolvedBoqVersionId),
       mappingSnapshot: mappingSnapshot([...studioMappings.values()].filter((mapping) => !retiredMappingIds.has(mapping.id) && mappingEligibleForRun(mapping, sourceDocument))),
       sourceProcessingRevision: (sourceDocument.processingRevision || 0) + 1,
@@ -449,7 +558,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
           ? (run.setup.route === 'raster' ? measureRaster(document, run) : measurePdf(document, run))
           : ['png', 'jpeg'].includes(document.format)
             ? measureRaster(document, run)
-            : measureDxf(document, run.units, run.parsedDocument, { versions: VERSIONS, typicalMultiplier: run.typicalMultiplier, runId: run.id });
+            : measureDxf(document, run.units, run.parsedDocument, { versions: VERSIONS, typicalMultiplier: run.typicalMultiplier, runId: run.id, rulesetVersion: run.rulesetVersion, assumptions: run.assumptions?.values });
         if (document.format === 'dxf') attachClassificationProvenance(run);
         completeStage(run, 'measurement');
         run.status = 'boq';
@@ -835,7 +944,11 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
         }
         if (sourceLine.provenance.fusionVersion) line.provenance.fusionVersion = sourceLine.provenance.fusionVersion;
         if (sourceLine.provenance.mappingSnapshot) line.provenance.mappingSnapshot = sourceLine.provenance.mappingSnapshot;
-        line.measurementStatus = measurementStatusFor(line.quantity, line.provenance.contributions);
+        /* A total that includes something we could not measure is not a total.
+           Inheriting the weakest state stops a rollup presenting a partial sum
+           as a complete one. */
+        if (sourceLine.measurementStatus === 'not_measurable') line.provenance.impossible = sourceLine.provenance.impossible || { reason: 'A contributing measurement was not measurable.' };
+        line.measurementStatus = line.provenance.impossible ? 'not_measurable' : measurementStatusFor(line.quantity, line.provenance.contributions);
         line.provenance.measurementStatus = line.measurementStatus;
         lines.set(sourceLine.measurement, line);
       }
@@ -903,7 +1016,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return assignSourceDocument(sourceDocumentId, { projectId: storey.projectId, buildingId: storey.buildingId, storeyId, ...(typicalMultiplier === undefined && typicalStoreyMultiplier === undefined ? {} : { typicalMultiplier: typicalStoreyMultiplier ?? typicalMultiplier }) });
   }
 
-  return { createProject, createBuilding, createStorey, createBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+  return { createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
 }
 
 function classifyDocument(run, sourceDocument, entities) {
@@ -1278,6 +1391,8 @@ function presentRun(run, sourceDocument) {
     sourceDocument: processedSourceDocument,
     currentSourceDocument,
     versions: run.versions,
+    rulesetVersion: run.rulesetVersion || null,
+    assumptions: run.assumptions ? structuredClone(run.assumptions) : null,
     projectId: run.projectId,
     buildingId: run.buildingId,
     storeyId: run.storeyId,

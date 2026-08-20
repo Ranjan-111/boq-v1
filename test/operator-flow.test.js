@@ -91,7 +91,12 @@ test('operator can submit a clean DXF and review deterministic source-backed qua
     {
       wall_plan: 6.026,
       wall_masonry: 18.078,
-      wall_plaster: 157.2,
+      /* 157.2 under clean-plan-v1, which never deducted openings. The default
+         ruleset is now clean-plan-v2: two doors (0.9 m, 0.75 m at 2.1 m) and
+         two windows (1.2 m, 1.5 m at 1.2 m), each removed from both plastered
+         faces, deduct 13.41 m2. Masonry stays gross -- that is a v2 policy
+         setting, off by default. */
+      wall_plaster: 143.79,
       floor_area: 27.72,
       skirting: 29.8,
       room_count: 2,

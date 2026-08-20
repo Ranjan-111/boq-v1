@@ -3,7 +3,7 @@
 **Baseline commit:** see `git log -1` — the R2 unified provenance record.
 **Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`,
 then replacing the two per-tier provenance shapes with one record (R2).
-**Suite:** 140 tests, all passing together (`npm test`).
+**Suite:** 160 tests, all passing together (`npm test`).
 
 ## What `main` now contains
 
@@ -20,14 +20,12 @@ then replacing the two per-tier provenance shapes with one record (R2).
 | #8 raster calibration | `codex/issue-8-raster-calibration` | merged |
 | #9 local OCR | `codex/issue-9-local-ocr` | merged |
 
-### Issue #6 was never implemented
+### Issue #6 — originally never implemented, now built
 
-`codex/issue-6-versioned-rules` points at commit `8817c59` — the *same commit* as
-`codex/issue-5-evidence-fusion`. It contributed zero lines. Nothing in the tree
-versions a ruleset in the sense #6 intended: `DXF_VERSIONS` in `src/dxf.js` stamps a
-frozen identifier (`ruleset: 'clean-plan-v1'`) into provenance, but there are no rule
-alternatives, no editable assumptions and no way to select a ruleset. #6 must be
-recreated as live work.
+`codex/issue-6-versioned-rules` pointed at commit `8817c59` — the *same commit* as
+`codex/issue-5-evidence-fusion`. It contributed zero lines, and `ruleset:
+'clean-plan-v1'` was a frozen label rather than a selectable ruleset. Rebuilt from
+scratch: see **Measurement rules** below.
 
 ## Module layout
 
@@ -35,6 +33,7 @@ recreated as live work.
 src/application.js    lifecycle, run schema, PDF + raster measurement
 src/provenance.js     the unified SourceObject / Contribution record (R2)
 src/repository.js     SQLite store and schema (R1) -- the only file that sees SQL
+src/rules.js          versioned measurement rules, rulesets and assumptions (#6)
 src/classification.js evidence fusion, studio mappings, stable digest()
 src/dxf.js            DXF parse, unit resolution, measurement rules
 src/ocr-results.js    OCR normalization, forbidden-field enforcement
@@ -194,16 +193,81 @@ Move to Postgres when **either** is true: the project goes multi-tenant SaaS, or
 runs more than one app node. Not before. The repository interface is deliberately
 narrow so that day is a swap rather than a rewrite.
 
+## Measurement rules (#6) — implemented
+
+`src/rules.js` holds a registry of plain JavaScript functions keyed by `ruleId`, and
+named rulesets that select rules and set policy. Deliberately **not** a formula DSL:
+functions are testable, debuggable and diffable, and a DSL would be a second language
+to maintain before anyone asked for one.
+
+The split that matters: **geometry is fact, rules are policy.** Running a different
+ruleset over identical geometry may produce different quantities, and that is correct
+behaviour rather than a defect.
+
+### Rulesets
+
+| version | plaster | masonry |
+|---|---|---|
+| `clean-plan-v1` | gross | gross |
+| `clean-plan-v2` *(default)* | openings deducted | gross |
+| `clean-plan-v2-net-masonry` | openings deducted | openings deducted |
+
+Rulesets are immutable — a policy change is a new version, never an edit — so a
+quantity measured under one stays reproducible. Selecting an unknown ruleset throws;
+it is never silently defaulted.
+
+**Deduction policies implemented:** door and window openings deducted from wall
+plaster (both faces, so the opening area is removed twice). **Left as a ruleset
+option:** whether openings are voids in the masonry volume — off by default, since
+treating small openings as solid is the common convention, and the choice differs
+between practices rather than being a fact about the drawing.
+
+An opening's **width comes from its block footprint** (3a), taken as the long axis of
+the bounds so it is rotation independent. An unresolved block reference is a point
+and cannot size an opening, so it contributes no deduction rather than a guessed one.
+
+### Assumptions
+
+A plan view gives an opening's width but never its height, and wall height and
+thickness are project conventions. These are operator-owned, per-project, versioned
+inputs with defaults, not constants inside a measurement function:
+
+| assumption | default | feeds |
+|---|---|---|
+| `wallHeight` | 3 m | masonry volume, plaster area |
+| `wallThickness` | 0.23 m | centre-line length from plan area, masonry deduction |
+| `doorOpeningHeight` | 2.1 m | plaster/masonry deduction |
+| `windowOpeningHeight` | 1.2 m | plaster/masonry deduction |
+
+Each is bounded — a zero wall thickness is refused before it divides into plaster,
+and an unknown assumption name is refused rather than ignored. Every change bumps a
+version and appends to a history carrying the reason, who made it and what moved.
+
+Runs **snapshot** the ruleset and assumptions they measured under, so a run stays
+reproducible after the project's policy moves on.
+
+### Changing policy invalidates approvals (merge gate Q4, now real)
+
+`approveBoqVersion` records the assumptions version and ruleset version it approved.
+Changing either re-measures every current source in the project, supersedes the runs
+that measured the old number, and moves any approved BOQ version to `stale` with the
+cause recorded. An approval cannot outlive the number it approved.
+
+### Impossible quantities
+
+Deductions can, with the wrong assumptions, subtract more than the geometry holds. A
+negative area is not a small quantity — it is a contradiction between the rules and
+the drawing. Such a line reports `not_measurable` with `provenance.impossible`
+carrying the reason and the actual signed sum; the negative number is never
+published, and the contributions stay visible. A rollup that includes an unmeasurable
+line is itself `not_measurable`, so a partial sum is never presented as a complete
+one.
+
 ## Known gaps (not regressions — never built)
 
 - **No BOQ export surface exists.** No CSV/XLSX/download path anywhere in `src/`.
   Merge-gate questions about exports are therefore vacuous today, not satisfied.
 - **No rate book, vendor or pricing** in the Node application.
-- **No rule emits a `deduct` contribution.** The record requires and validates `sign`,
-  and `signedSum` subtracts deductions, but no measurement rule in `src/` subtracts
-  anything today: door and window openings are counted, never deducted from wall
-  areas. Adding a real deduction changes `wall_plaster`/`wall_masonry` quantities, so
-  it is rule work, not part of this evidence-record refactor.
 - **`vision.js` is prototype-only and browser-keyed.** It calls the model provider
   directly from the page with an operator-pasted key, and nothing in `src/` imports it.
   It cannot ship (research question R4).

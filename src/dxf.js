@@ -1,4 +1,5 @@
-const { createSourceObject, createContribution, buildProvenance, measurementStatusFor } = require('./provenance');
+const { createSourceObject, createContribution, buildProvenance, measurementStatusFor, signedSum } = require('./provenance');
+const { getRuleset, getRule, normalizeAssumptions, DEFAULT_RULESET_VERSION, DEFAULT_ASSUMPTIONS } = require('./rules');
 
 const EXTERNAL_REFERENCE_ENTITY_TYPES = Object.freeze(['XREF', 'IMAGE', 'PDFUNDERLAY', 'DGNUNDERLAY']);
 const EXTERNAL_REFERENCE_BLOCK_FLAGS = 4 | 8;
@@ -24,43 +25,37 @@ function inspectDxf(sourceDocument, { versions = DXF_VERSIONS } = {}) {
   return { document, units: resolveUnits(document, sourceDocument, versions.unitResolution), versions };
 }
 
-/** Measure one normalized document, emitting a unified provenance record.
-    Quantities are computed exactly as before; the evidence record around them
-    is what changed. */
-function measureDxf(sourceDocument, units, parsedDocument, { versions = DXF_VERSIONS, typicalMultiplier = 1, runId = null } = {}) {
+/** Measure one normalized document under a named ruleset.
+
+    Quantities are the signed sum of the contributions the rules produced, so a
+    line always reconciles to its own evidence by construction rather than by a
+    separate calculation that could drift from it. */
+function measureDxf(sourceDocument, units, parsedDocument, {
+  versions = DXF_VERSIONS, typicalMultiplier = 1, runId = null,
+  rulesetVersion = DEFAULT_RULESET_VERSION, assumptions = DEFAULT_ASSUMPTIONS
+} = {}) {
   const document = parsedDocument || parseDxf(sourceDocument.content);
+  const ruleset = getRuleset(rulesetVersion);
+  const resolvedAssumptions = normalizeAssumptions(assumptions);
   const toMetres = units.toMetres;
   const walls = [];
   const rooms = [];
   const byCategory = { door: [], window: [], furniture: [] };
-  let wallArea = 0;
-  let floorArea = 0;
-  let roomPerimeter = 0;
   for (const entity of document.entities) {
     const category = layerCategory(entity.layer) || blockCategory(entity.block);
-    if (entity.type === 'HATCH' && category === 'wall' && entity.points.length >= 3) {
-      wallArea += polygonArea(entity.points);
-      walls.push(entity);
-    }
-    if (entity.type === 'LWPOLYLINE' && category === 'room' && entity.points.length >= 3) {
-      floorArea += polygonArea(entity.points);
-      roomPerimeter += polygonPerimeter(entity.points);
-      rooms.push(entity);
-    }
+    if (entity.type === 'HATCH' && category === 'wall' && entity.points.length >= 3) walls.push(entity);
+    if (entity.type === 'LWPOLYLINE' && category === 'room' && entity.points.length >= 3) rooms.push(entity);
     if (entity.type === 'INSERT' && category && byCategory[category]) byCategory[category].push(entity);
   }
-  const wallPlan = quantity(wallArea * toMetres * toMetres * typicalMultiplier);
-  const floor = quantity(floorArea * toMetres * toMetres * typicalMultiplier);
-  const wallHeight = 3;
-  const wallThickness = 0.23;
-  const wallCentreLength = wallPlan / wallThickness;
 
   const sourceObjects = new Map();
+  const objectByEntity = new Map();
   const register = (entity) => {
+    if (objectByEntity.has(entity)) return objectByEntity.get(entity);
     /* A block reference carries only its insertion point. Expanding the block
        definition gives the real footprint, which is what a viewer needs to fit
-       a selection. An undefined block keeps the point and says so, rather than
-       inventing an extent. */
+       a selection -- and what sizes an opening. An undefined block keeps the
+       point and says so, rather than inventing an extent. */
     const placed = entity.type === 'INSERT' ? placeBlockGeometry(document.blocks?.[entity.block], entity) : null;
     const geometry = placed || entity.points;
     const geometryResolution = entity.type !== 'INSERT' ? 'native' : placed ? 'block-definition' : 'insertion-point';
@@ -77,42 +72,41 @@ function measureDxf(sourceDocument, units, parsedDocument, { versions = DXF_VERS
       nativeHandle: entity.handle
     });
     sourceObjects.set(object.sourceObjectId, object);
+    objectByEntity.set(entity, object);
     return object;
   };
-  /* One contribution per entity, so a line decomposes back to the objects that
-     produced it. `share` maps an entity to its slice of the line quantity. */
-  const contribute = (entities, measurement, unit, ruleId, share) => entities.map((entity) => createContribution({
-    sourceObjectId: register(entity).sourceObjectId,
-    measurement, sign: 'add', quantity: share(entity), unit,
-    ruleId, rulesetVersion: versions.ruleset, runId, typicalMultiplier
-  }));
+  // openings are sized from resolved block geometry, so register them up front
+  for (const entity of [...walls, ...rooms, ...byCategory.door, ...byCategory.window, ...byCategory.furniture]) register(entity);
 
-  const areaOf = (entity) => polygonArea(entity.points) * toMetres * toMetres * typicalMultiplier;
-  const plasterOf = (entity) => (areaOf(entity) / wallThickness) * 2 * wallHeight;
+  const context = {
+    walls, rooms, doors: byCategory.door, windows: byCategory.window, furniture: byCategory.furniture,
+    toMetres, typicalMultiplier, assumptions: resolvedAssumptions, settings: ruleset.settings,
+    objectFor: (entity) => objectByEntity.get(entity),
+    areaOf: (entity) => polygonArea(entity.points) * toMetres * toMetres * typicalMultiplier,
+    perimeterOf: (entity) => polygonPerimeter(entity.points) * toMetres * typicalMultiplier
+  };
 
-  const lines = [
-    line('wall_plan', 'Wall footprint (plan)', wallPlan, 'm²', ['layer', 'hatch'],
-      contribute(walls, 'wall_plan', 'm²', 'dxf-wall-plan-v1', areaOf)),
-    line('wall_masonry', 'Wall masonry volume', quantity(wallPlan * wallHeight), 'm³', ['layer', 'hatch'],
-      contribute(walls, 'wall_masonry', 'm³', 'dxf-wall-masonry-v1', (entity) => areaOf(entity) * wallHeight)),
-    line('wall_plaster', 'Wall plaster (both faces)', quantity(wallCentreLength * 2 * wallHeight), 'm²', ['layer', 'hatch'],
-      contribute(walls, 'wall_plaster', 'm²', 'dxf-wall-plaster-v1', plasterOf)),
-    line('floor_area', 'Floor finish area', floor, 'm²', ['layer', 'geometry'],
-      contribute(rooms, 'floor_area', 'm²', 'dxf-floor-area-v1', areaOf)),
-    line('skirting', 'Skirting length', quantity(roomPerimeter * toMetres * typicalMultiplier), 'm', ['layer', 'geometry'],
-      contribute(rooms, 'skirting', 'm', 'dxf-skirting-v1', (entity) => polygonPerimeter(entity.points) * toMetres * typicalMultiplier)),
-    line('room_count', 'Room count', rooms.length * typicalMultiplier, 'nos', ['layer', 'geometry'],
-      contribute(rooms, 'room_count', 'nos', 'dxf-room-count-v1', () => typicalMultiplier)),
-    line('door_count', 'Doors', byCategory.door.length * typicalMultiplier, 'nos', ['layer', 'block'],
-      contribute(byCategory.door, 'door_count', 'nos', 'dxf-door-count-v1', () => typicalMultiplier)),
-    line('window_count', 'Windows', byCategory.window.length * typicalMultiplier, 'nos', ['layer', 'block'],
-      contribute(byCategory.window, 'window_count', 'nos', 'dxf-window-count-v1', () => typicalMultiplier)),
-    line('furniture_count', 'Furniture items', byCategory.furniture.length * typicalMultiplier, 'nos', ['layer', 'block'],
-      contribute(byCategory.furniture, 'furniture_count', 'nos', 'dxf-furniture-count-v1', () => typicalMultiplier))
-  ];
+  const lines = ruleset.ruleIds.map((ruleId) => {
+    const rule = getRule(ruleId);
+    const contributions = rule.compute(context).map((intent) => createContribution({
+      sourceObjectId: register(intent.entity).sourceObjectId,
+      measurement: rule.measurement,
+      sign: intent.sign,
+      quantity: intent.quantity,
+      unit: rule.unit,
+      ruleId: rule.id,
+      rulesetVersion: ruleset.version,
+      runId,
+      typicalMultiplier,
+      ruleInputs: { assumptions: resolvedAssumptions, settings: ruleset.settings }
+    }));
+    return line(rule.measurement, rule.label, quantity(signedSum(contributions)), rule.unit, rule.evidence, contributions);
+  });
+
   return {
-    versions,
-    ruleset: versions.ruleset,
+    versions: { ...versions, ruleset: ruleset.version },
+    ruleset: ruleset.version,
+    assumptions: resolvedAssumptions,
     sourceObjects: [...sourceObjects.values()],
     aggregation: { scope: 'source_document', scopeId: sourceDocument.id },
     lines
@@ -334,11 +328,25 @@ function polygonArea(points) { return Math.abs(points.reduce((area, point, index
 function polygonPerimeter(points) { return points.reduce((perimeter, point, index) => { const next = points[(index + 1) % points.length]; return perimeter + Math.hypot(next[0] - point[0], next[1] - point[1]); }, 0); }
 function quantity(value) { return Number(value.toFixed(6)); }
 function line(measurement, label, value, unit, evidence, contributions) {
+  /* Deductions can, with the wrong assumptions, subtract more than the geometry
+     holds. A negative area is not a small quantity -- it is a contradiction
+     between the rules and the drawing, and letting it through would quietly
+     reduce whatever total it rolls into. Report it as unmeasurable, keep the
+     arithmetic that produced it, and never publish the negative number. */
+  const impossible = value < 0
+    ? { reason: 'Deductions exceed the measured geometry, so this cannot be a quantity. Check the opening assumptions against the drawing.', signedSum: value }
+    : null;
+  const quantity = impossible ? 0 : value;
   return {
-    measurement, label, quantity: value, unit,
+    measurement, label, quantity, unit,
     confidence: { level: evidence.length === 2 ? 'HIGH' : 'MEDIUM', evidence },
-    measurementStatus: measurementStatusFor(value, contributions),
-    provenance: buildProvenance({ contributions, quantity: value })
+    measurementStatus: impossible ? 'not_measurable' : measurementStatusFor(quantity, contributions),
+    provenance: buildProvenance({
+      contributions,
+      quantity,
+      measurementStatus: impossible ? 'not_measurable' : undefined,
+      ...(impossible ? { impossible } : {})
+    })
   };
 }
 function sourceInputError(sourceDocument, detail) { return new InputError(`${detail} Affected source: ${sourceDocument.filename} (${sourceDocument.id}, v${sourceDocument.version}).`); }
