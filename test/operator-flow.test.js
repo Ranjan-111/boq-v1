@@ -1,4 +1,5 @@
 const { readFile } = require('node:fs/promises');
+const { createHash } = require('node:crypto');
 const { after, before, test } = require('node:test');
 const assert = require('node:assert/strict');
 const { startOperatorApp } = require('../test-support/operator-app');
@@ -24,12 +25,44 @@ async function uploadCleanPlan() {
   return response.json();
 }
 
+async function uploadPdf(filename = 'vector-plan.dat', fields = {}) {
+  const pdf = await readFile(`${__dirname}/fixtures/vector-plan.pdf`);
+  const form = new FormData();
+  form.set('drawing', new Blob([pdf], { type: 'application/octet-stream' }), filename);
+  for (const [name, value] of Object.entries(fields)) form.set(name, value);
+  return fetch(`${baseUrl}/api/source-documents`, { method: 'POST', body: form });
+}
+
+function makeImageOnlyPdf(withVector = false) {
+  const content = `${withVector ? '0 0 50 50 re S\n' : ''}q\n20 0 0 20 10 10 cm\n/Im1 Do\nQ\n`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /XObject << /Im1 5 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}endstream`,
+    '<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length 8 >>\nstream\n000000>\nendstream'
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf);
+}
+
+async function uploadPdfBytes(bytes, filename, fields = {}) {
+  const form = new FormData();
+  form.set('drawing', new Blob([bytes], { type: 'application/pdf' }), filename);
+  for (const [name, value] of Object.entries(fields)) form.set(name, value);
+  return fetch(`${baseUrl}/api/source-documents`, { method: 'POST', body: form });
+}
+
 async function completedRun(runId) {
   for (let attempts = 0; attempts < 120; attempts += 1) {
     const response = await fetch(`${baseUrl}/api/runs/${runId}`);
     assert.equal(response.status, 200);
     const run = await response.json();
-    if (run.status === 'completed') return run;
+    if (['completed', 'awaiting_setup', 'awaiting_calibration', 'failed'].includes(run.status)) return run;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.fail('processing run did not complete');
@@ -68,6 +101,175 @@ test('operator can submit a clean DXF and review deterministic source-backed qua
   assert.equal(lines.wall_masonry.confidence.evidence.join(','), 'layer,hatch');
   assert.equal(lines.floor_area.measurementStatus, 'measured');
   assert.equal(lines.floor_area.provenance.sourceDocumentId, submission.sourceDocument.id);
+});
+
+test('content-sniffed vector PDF preserves bytes and waits for explicit setup', async () => {
+  const response = await uploadPdf();
+  assert.equal(response.status, 202);
+  const submission = await response.json();
+  const pdf = await readFile(`${__dirname}/fixtures/vector-plan.pdf`);
+  assert.equal(submission.sourceDocument.format, 'pdf');
+  assert.equal(submission.sourceDocument.mediaType, 'application/pdf');
+  assert.equal(submission.sourceDocument.byteLength, pdf.length);
+  assert.equal(submission.sourceDocument.contentSha256, createHash('sha256').update(pdf).digest('hex'));
+  assert.equal(submission.processingRun.status, 'ingestion');
+
+  const run = await completedRun(submission.processingRun.id);
+  assert.equal(run.status, 'awaiting_setup');
+  assert.equal(run.setup.status, 'pending');
+  assert.equal(run.pages.length, 1);
+  assert.equal(run.pages[0].rotation, 90);
+  assert.equal(run.pages[0].kind, 'vector');
+  assert.match(run.pages[0].nativeText[0].text, /ROOM 101/);
+  assert.ok(run.pages[0].vectorRegions.some((region) => region.id === 'pdf:p1:path:0001'));
+  assert.equal(run.boq, null);
+});
+
+test('image-only PDF enters the normalized raster calibration handoff without a BOQ', async () => {
+  const response = await uploadPdfBytes(makeImageOnlyPdf(), 'image-only-vector.pdf');
+  assert.equal(response.status, 202);
+  const submission = await response.json();
+  const run = await completedRun(submission.processingRun.id);
+  assert.equal(run.status, 'awaiting_calibration');
+  assert.equal(run.pages[0].kind, 'raster');
+  assert.equal(run.setup.route, 'raster');
+  assert.equal(run.boq, null);
+  assert.match(run.blockedReasons.join(' '), /calibration|tracing/i);
+});
+
+test('PDF pages with vector and image content are classified mixed with both evidence sets', async () => {
+  const response = await uploadPdfBytes(makeImageOnlyPdf(true), 'mixed-vector-image.pdf');
+  assert.equal(response.status, 202);
+  const submission = await response.json();
+  const run = await completedRun(submission.processingRun.id);
+  assert.equal(run.status, 'awaiting_calibration');
+  assert.equal(run.setup.route, 'raster');
+  assert.equal(run.setup.status, 'pending');
+  assert.match(run.blockedReasons.join(' '), /mixed|native metadata|raster regions/i);
+  assert.equal(run.pages[0].kind, 'mixed');
+  assert.equal(run.pages[0].route, 'raster');
+  assert.ok(run.pages[0].nativeRegionIds.length > 0);
+  assert.ok(run.pages[0].rasterRegionIds.length > 0);
+});
+
+test('PDF setup rejects scales that would underflow or overflow area conversion', async () => {
+  const submission = await (await uploadPdf('extreme-scale-vector.pdf')).json();
+  const inspected = await completedRun(submission.processingRun.id);
+  for (const scale of ['1e-200', '1e200']) {
+    const response = await fetch(`${baseUrl}/api/runs/${inspected.id}/setup`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pages: [{ sourcePageId: 'page_1', scale: { drawingUnitsPerMetre: scale }, selectedRegions: ['pdf:p1:path:0001'] }] })
+    });
+    assert.equal(response.status, 422);
+  assert.match((await response.json()).error, /finite|range|scale/i);
+  }
+});
+
+test('vector PDF setup gates measurement and preserves page-region provenance', async () => {
+  const submission = await (await uploadPdf('vector-plan.dxf')).json();
+  const inspected = await completedRun(submission.processingRun.id);
+  const setupResponse = await fetch(`${baseUrl}/api/runs/${inspected.id}/setup`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pages: [{ sourcePageId: 'page_1', scale: { drawingUnitsPerMetre: 72 }, selectedRegions: ['pdf:p1:path:0001'] }] })
+  });
+  assert.equal(setupResponse.status, 202);
+  const configured = await setupResponse.json();
+  const run = await completedRun(configured.processingRun.id);
+  assert.equal(run.status, 'completed');
+  assert.equal(run.boq.lines.find((line) => line.measurement === 'floor_area').quantity, 0.5);
+  const provenance = run.boq.lines[0].provenance.sourceContributions[0];
+  assert.equal(provenance.sourcePageId, 'page_1');
+  assert.deepEqual(provenance.nativeElementIds, ['pdf:p1:path:0001']);
+  assert.equal(provenance.geometrySource, 'native-vector');
+  assert.equal(provenance.rotation, 90);
+  assert.deepEqual(provenance.pageTransform, [0, 1, -1, 0, 36, 0]);
+  assert.equal(provenance.processingRunId, run.id);
+  assert.equal(provenance.setupRevision, 1);
+  assert.equal(provenance.scale.drawingUnitsPerMetre, 72);
+  assert.equal(provenance.rulesetVersion, run.versions.ruleset);
+  assert.equal(run.boq.versions.ruleset, run.versions.ruleset);
+});
+
+test('vector PDF setup rejects duplicate or missing page entries', async () => {
+  const submission = await (await uploadPdf()).json();
+  const inspected = await completedRun(submission.processingRun.id);
+  const response = await fetch(`${baseUrl}/api/runs/${inspected.id}/setup`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pages: [{ sourcePageId: 'page_1', scale: { drawingUnitsPerMetre: 72 }, selectedRegions: ['pdf:p1:path:0001'] }, { sourcePageId: 'page_1', scale: { drawingUnitsPerMetre: 72 }, selectedRegions: ['pdf:p1:path:0001'] }] })
+  });
+  assert.equal(response.status, 422);
+  assert.match((await response.json()).error, /exactly one setup entry/i);
+});
+
+test('configured vector PDF reprocess replays the validated setup', async () => {
+  const submission = await (await uploadPdf('replay-vector.pdf')).json();
+  const inspected = await completedRun(submission.processingRun.id);
+  const configured = await (await fetch(`${baseUrl}/api/runs/${inspected.id}/setup`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pages: [{ sourcePageId: 'page_1', scale: { drawingUnitsPerMetre: 72 }, selectedRegions: ['pdf:p1:path:0001'] }] })
+  })).json();
+  const firstRun = await completedRun(configured.processingRun.id);
+  const replay = await fetch(`${baseUrl}/api/runs/${firstRun.id}/reprocess`, { method: 'POST' });
+  assert.equal(replay.status, 202);
+  const replaySubmission = await replay.json();
+  const replayed = await completedRun(replaySubmission.processingRun.id);
+  assert.equal(replayed.status, 'completed');
+  assert.equal(replayed.boq.lines.find((line) => line.measurement === 'floor_area').quantity, 0.5);
+  assert.equal(replayed.setup.status, 'ready');
+});
+
+test('reassignment invalidates an inspected PDF setup run', async () => {
+  const projectResponse = await fetch(`${baseUrl}/api/projects`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'PDF reassignment project' })
+  });
+  const project = (await projectResponse.json()).project;
+  const response = await uploadPdf('reassigned-vector.pdf');
+  const submission = await response.json();
+  const inspected = await completedRun(submission.processingRun.id);
+  const assignment = await fetch(`${baseUrl}/api/source-documents/${submission.sourceDocument.id}/assignment`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ projectId: project.id, typicalMultiplier: 1 })
+  });
+  assert.equal(assignment.status, 200);
+  assert.equal((await fetch(`${baseUrl}/api/runs/${inspected.id}`)).status, 200);
+  const staleSetup = await fetch(`${baseUrl}/api/runs/${inspected.id}/setup`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pages: [{ sourcePageId: 'page_1', scale: { drawingUnitsPerMetre: 72 }, selectedRegions: ['pdf:p1:path:0001'] }] })
+  });
+  assert.equal(staleSetup.status, 409);
+});
+
+test('configured vector PDF contributes page provenance to a storey rollup', async () => {
+  const project = (await (await fetch(`${baseUrl}/api/projects`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'PDF project' }) })).json()).project;
+  const building = (await (await fetch(`${baseUrl}/api/projects/${project.id}/buildings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'PDF building' }) })).json()).building;
+  const storey = (await (await fetch(`${baseUrl}/api/buildings/${building.id}/storeys`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'PDF storey' }) })).json()).storey;
+  const pdf = await readFile(`${__dirname}/fixtures/vector-plan.pdf`);
+  const form = new FormData();
+  form.set('drawing', new Blob([pdf], { type: 'application/pdf' }), 'vector-plan.pdf');
+  form.set('storeyId', storey.id);
+  const submission = await (await fetch(`${baseUrl}/api/projects/${project.id}/source-documents`, { method: 'POST', body: form })).json();
+  const inspected = await completedRun(submission.processingRun.id);
+  const configured = await (await fetch(`${baseUrl}/api/runs/${inspected.id}/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pages: [{ sourcePageId: 'page_1', scale: { drawingUnitsPerMetre: 72 }, selectedRegions: ['pdf:p1:path:0001'] }] }) })).json();
+  await completedRun(configured.processingRun.id);
+  const result = (await (await fetch(`${baseUrl}/api/projects/${project.id}`)).json()).project;
+  const line = result.buildings[0].storeys[0].rollup.lines.find((candidate) => candidate.measurement === 'floor_area');
+  assert.equal(line.quantity, 0.5);
+  assert.equal(line.provenance.sourceContributions[0].sourcePageId, 'page_1');
+  assert.deepEqual(line.provenance.sourceContributions[0].nativeElementIds, ['pdf:p1:path:0001']);
+});
+
+test('PDF typical-storey multiplier is applied once and retained in provenance', async () => {
+  const project = (await (await fetch(`${baseUrl}/api/projects`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'PDF multiplier project' }) })).json()).project;
+  const building = (await (await fetch(`${baseUrl}/api/projects/${project.id}/buildings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'PDF multiplier building' }) })).json()).building;
+  const storey = (await (await fetch(`${baseUrl}/api/buildings/${building.id}/storeys`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'PDF multiplier storey' }) })).json()).storey;
+  const submission = await (await uploadPdf('multiplier-vector.pdf', { storeyId: storey.id, typicalMultiplier: '2' })).json();
+  const inspected = await completedRun(submission.processingRun.id);
+  const configured = await (await fetch(`${baseUrl}/api/runs/${inspected.id}/setup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pages: [{ sourcePageId: 'page_1', scale: { drawingUnitsPerMetre: 72 }, selectedRegions: ['pdf:p1:path:0001'] }] }) })).json();
+  const run = await completedRun(configured.processingRun.id);
+  const line = run.boq.lines.find((candidate) => candidate.measurement === 'floor_area');
+  assert.equal(line.quantity, 1);
+  assert.equal(line.provenance.sourceContributions[0].typicalMultiplier, 2);
 });
 
 test('operator can reprocess the same source and versions without changing quantities', async () => {

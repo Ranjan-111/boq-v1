@@ -46,9 +46,9 @@
       </div>
     </section>
     <section>
-      <h2>Upload clean DXF</h2>
+      <h2>Upload clean DXF or vector PDF</h2>
       <form id="upload-form">
-        <input id="drawing" name="drawing" type="file" accept=".dxf" required>
+        <input id="drawing" name="drawing" type="file" accept=".dxf,.pdf,application/pdf" required>
         <label for="fallback-unit">Fallback unit (only when the DXF unit is missing or unsupported)</label>
         <select id="fallback-unit" name="fallbackUnit">
           <option value="">No fallback — require source evidence</option>
@@ -64,6 +64,14 @@
       <h2>Processing run</h2>
       <div id="run-summary"></div>
       <button id="reprocess" type="button" hidden>Reprocess this source</button>
+    </section>
+    <section id="pdf-setup" hidden>
+      <h2>Confirm PDF scale and regions</h2>
+      <p>Native PDF geometry is inspected without OCR. Confirm the drawing units per metre and select the regions to measure.</p>
+      <form id="pdf-setup-form">
+        <div id="pdf-pages"></div>
+        <button type="submit">Confirm PDF scale and regions</button>
+      </form>
     </section>
     <section id="review" hidden>
       <h2>Reviewable BOQ</h2>

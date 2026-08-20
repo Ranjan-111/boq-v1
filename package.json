@@ -5,9 +5,12 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",
-    "check": "node --check src/server.js && node --check src/application.js && node --check src/classification.js && node --check src/dxf.js && node --check public/app.js && node --check test/classification.test.js && node --check test/operator-interface.test.js && node --check test/multi-floor.test.js"
+    "check": "node --check src/server.js && node --check src/application.js && node --check src/classification.js && node --check src/dxf.js && node --check src/ingestion/sniff.js && node --check src/ingestion/limits.js && node --check src/ingestion/pdf.js && node --check public/app.js && node --check test/classification.test.js && node --check test/operator-interface.test.js && node --check test/multi-floor.test.js && node --check test/pdf-adapter.test.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1"
+  },
+  "dependencies": {
+    "pdfjs-dist": "4.10.38"
   }
 }

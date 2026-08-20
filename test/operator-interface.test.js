@@ -71,6 +71,32 @@ test('operator interface explains an unsafe unit input and offers an explicit fa
   await page.close();
 });
 
+test('operator can inspect and configure a vector PDF before reviewing its BOQ', async () => {
+  const page = await browser.newPage();
+  await page.goto(baseUrl);
+  await page.locator('#drawing').setInputFiles({ name: 'vector-plan.dat', mimeType: 'application/octet-stream', buffer: await readFile(join(__dirname, 'fixtures', 'vector-plan.pdf')) });
+  await page.getByRole('button', { name: 'Create processing run' }).click();
+  await page.waitForFunction(() => document.querySelector('#pdf-setup').hidden === false);
+  assert.match(await page.locator('#pdf-setup').textContent(), /ROOM 101/);
+  await page.locator('#pdf-scale-page-1').fill('72');
+  await page.locator('#pdf-region-pdf-p1-path-0001').check();
+  await page.getByRole('button', { name: 'Confirm PDF scale and regions' }).click();
+  await page.waitForFunction(() => document.querySelector('#boq-lines').textContent.includes('0.5'));
+  assert.match(await page.locator('#boq-lines').textContent(), /pdf:p1:path:0001/);
+  await page.close();
+});
+
+test('operator stops at the raster handoff for a mixed PDF and explains the blocked state', async () => {
+  const page = await browser.newPage();
+  await page.goto(baseUrl);
+  await page.locator('#drawing').setInputFiles({ name: 'mixed-plan.pdf', mimeType: 'application/pdf', buffer: await readFile(join(__dirname, 'fixtures', 'mixed-plan.pdf')) });
+  await page.getByRole('button', { name: 'Create processing run' }).click();
+  await page.waitForFunction(() => document.querySelector('#message').textContent.match(/raster calibration|tracing/i));
+  assert.equal(await page.locator('#pdf-setup').isHidden(), true);
+  assert.equal(await page.locator('#boq-lines tr').count(), 0);
+  await page.close();
+});
+
 test('operator browser flow displays project rollup and storey provenance', async () => {
   const page = await browser.newPage();
   await page.goto(baseUrl);
