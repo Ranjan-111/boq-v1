@@ -203,7 +203,7 @@ function blockCategory(block = '') {
   const name = block.toUpperCase();
   if (name.startsWith('DOOR')) return 'door';
   if (name.startsWith('WIN')) return 'window';
-  if (['SOFA', 'BED', 'TABLE', 'WARDROBE', 'CHAIR', 'DESK'].some((prefix) => name.startsWith(prefix))) return 'furniture';
+  if (['SOFA', 'BED', 'TABLE', 'WARDROBE', 'CHAIR', 'STOOL', 'DESK'].some((prefix) => name.startsWith(prefix))) return 'furniture';
   return null;
 }
 function polygonArea(points) { return Math.abs(points.reduce((area, point, index) => { const next = points[(index + 1) % points.length]; return area + point[0] * next[1] - next[0] * point[1]; }, 0) / 2); }
@@ -218,4 +218,4 @@ function malformedEntityError(type, handle, detail = '') { return new InputError
 function unsupportedEntityError(type) { return new InputError(`Unsupported or unvalidated ${type} entity; use a native DXF re-export or simplify the drawing before processing.`); }
 class InputError extends Error {}
 
-module.exports = { DXF_VERSIONS, UNIT_DEFINITIONS, inspectDxf, measureDxf, parseDxf, resolveUnits, InputError };
+module.exports = { DXF_VERSIONS, UNIT_DEFINITIONS, inspectDxf, measureDxf, parseDxf, resolveUnits, layerCategory, blockCategory, InputError };

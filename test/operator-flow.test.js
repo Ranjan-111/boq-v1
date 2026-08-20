@@ -125,6 +125,43 @@ test('HTTP project workspace returns building/storey rollups with source drill-d
   assert.equal(floor.provenance.sourceContributions[0].storeyId, storey.id);
 });
 
+test('HTTP mapping lifecycle applies an approved scoped decision with versioned provenance', async () => {
+  const project = (await (await fetch(`${baseUrl}/api/projects`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'HTTP classification project' })
+  })).json()).project;
+  const invalid = await fetch(`${baseUrl}/api/projects/${project.id}/mappings`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scope: {}, target: { category: 'seating' } })
+  });
+  assert.equal(invalid.status, 422);
+  const draftResponse = await fetch(`${baseUrl}/api/projects/${project.id}/mappings`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ scope: { layerPattern: 'A-FURN', blockPattern: 'SOFA_3S' }, target: { category: 'seating', catalogItem: 'sofa' } })
+  });
+  assert.equal(draftResponse.status, 201);
+  const draft = (await draftResponse.json()).mapping;
+  const approval = await fetch(`${baseUrl}/api/mappings/${draft.id}/approve`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reason: 'Verified studio convention.' })
+  });
+  assert.equal(approval.status, 200);
+  const approved = (await approval.json()).mapping;
+
+  const plan = await readFile(`${__dirname}/fixtures/clean-plan.dxf`);
+  const form = new FormData();
+  form.set('drawing', new Blob([plan], { type: 'application/dxf' }), 'mapped.dxf');
+  const upload = await fetch(`${baseUrl}/api/projects/${project.id}/source-documents`, { method: 'POST', body: form });
+  assert.equal(upload.status, 202);
+  const submission = await upload.json();
+  await completedRun(submission.processingRun.id);
+  const classificationsResponse = await fetch(`${baseUrl}/api/runs/${submission.processingRun.id}/classifications`);
+  assert.equal(classificationsResponse.status, 200);
+  const result = await classificationsResponse.json();
+  assert.deepEqual(result.mappingSnapshot.mappingVersions.map(({ id, version }) => ({ id, version })), [{ id: approved.id, version: 1 }]);
+  const sofa = result.classifications.find((classification) => classification.sourceObject.block === 'SOFA_3S');
+  assert.equal(sofa.category.value, 'seating');
+  assert.equal(sofa.catalogItem.value, 'sofa');
+  assert.ok(sofa.evidence.some((item) => item.kind === 'approved-mapping' && item.profileVersion === 1));
+});
+
 test('HTTP project and rollup endpoints expose a requested historical BOQ version through nested drill-down', async () => {
   const project = (await (await fetch(`${baseUrl}/api/projects`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Historical HTTP project' })

@@ -8,6 +8,7 @@ const reprocess = document.querySelector('#reprocess');
 const rollupSection = document.querySelector('#rollup');
 const rollupSummary = document.querySelector('#rollup-summary');
 const rollupLines = document.querySelector('#rollup-lines');
+const classificationReview = document.querySelector('#classification-review');
 const projectForm = document.querySelector('#project-form');
 const projectStatus = document.querySelector('#project-status');
 const projectControls = document.querySelector('#project-controls');
@@ -221,7 +222,7 @@ async function pollRun() {
   const run = await response.json();
   renderRun(run);
   if (run.status === 'completed') {
-    renderBoq(run.boq.lines);
+    renderBoq(run.boq.lines, run.classifications || []);
     await refreshProject();
     await renderProjectRollup(run);
     reprocess.hidden = false;
@@ -294,7 +295,33 @@ function renderRun(run) {
   ]);
 }
 
-function renderBoq(lines) {
+function renderBoq(lines, classifications = []) {
+  classificationReview.replaceChildren();
+  const conflicts = classifications.flatMap((classification) => classification.conflicts || []).filter((conflict, index, all) => all.findIndex((candidate) => candidate.groupKey === conflict.groupKey) === index);
+  if (classifications.length) {
+    const summary = document.createElement('p');
+    summary.textContent = `${classifications.length} source objects classified; category and exact catalog item are tracked separately.`;
+    classificationReview.append(summary);
+    const table = document.createElement('table');
+    table.innerHTML = '<thead><tr><th>Source object</th><th>Category</th><th>Exact catalog item</th></tr></thead><tbody></tbody>';
+    const body = table.querySelector('tbody');
+    for (const classification of classifications) {
+      const row = document.createElement('tr');
+      for (const value of [classification.sourceObjectId, `${classification.category.value || 'Unresolved'} (${classification.category.state})`, `${classification.catalogItem.value || 'Unresolved'} (${classification.catalogItem.state})`]) {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        row.append(cell);
+      }
+      body.append(row);
+    }
+    classificationReview.append(table);
+  }
+  for (const conflict of conflicts) {
+    const alert = document.createElement('p');
+    alert.className = 'error';
+    alert.textContent = `Grouped classification conflict (${conflict.groupKey}): ${conflict.candidateValues.join(' vs ')} — exact item remains unresolved.`;
+    classificationReview.append(alert);
+  }
   boqLines.replaceChildren(...lines.map((line) => {
     const row = document.createElement('tr');
     const provenance = `${line.provenance.sourceDocumentId} v${line.provenance.sourceDocumentVersion}\n${line.provenance.sourceHandles.join(', ')}`;

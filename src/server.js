@@ -39,6 +39,31 @@ function createServer(application = createApplication()) {
         const body = await readJson(request);
         return sendJson(response, 201, { boqVersion: application.createBoqVersion({ ...body, projectId: projectVersionMatch[1] }) });
       }
+      const projectMappingsMatch = /^\/api\/projects\/(project_\d+)\/mappings$/.exec(url.pathname);
+      if (request.method === 'GET' && projectMappingsMatch) return sendJson(response, 200, { mappings: application.getStudioMappings({ projectId: projectMappingsMatch[1] }) });
+      if (request.method === 'POST' && projectMappingsMatch) {
+        const body = await readJson(request);
+        return sendJson(response, 201, { mapping: application.createStudioMapping({ ...body, projectId: projectMappingsMatch[1] }) });
+      }
+      const projectStudioMappingsMatch = /^\/api\/projects\/(project_\d+)\/studio-mappings$/.exec(url.pathname);
+      if (request.method === 'GET' && projectStudioMappingsMatch) return sendJson(response, 200, { mappings: application.getStudioMappings({ projectId: projectStudioMappingsMatch[1] }) });
+      if (request.method === 'POST' && projectStudioMappingsMatch) {
+        const body = await readJson(request);
+        return sendJson(response, 201, { mapping: application.createStudioMapping({ ...body, projectId: projectStudioMappingsMatch[1] }) });
+      }
+      if (request.method === 'GET' && url.pathname === '/api/studio-mappings') return sendJson(response, 200, { mappings: application.getStudioMappings({ studioId: url.searchParams.get('studioId') || undefined }) });
+      const mappingActionMatch = /^\/api\/mappings\/(mapping_\d+)\/(approve|retire)$/.exec(url.pathname);
+      if (request.method === 'POST' && mappingActionMatch) {
+        const body = await readJson(request);
+        const mapping = mappingActionMatch[2] === 'approve' ? application.approveStudioMapping(mappingActionMatch[1], body) : application.retireStudioMapping(mappingActionMatch[1], body);
+        return sendJson(response, 200, { mapping });
+      }
+      const mappingAliasMatch = /^\/api\/studio-mappings\/(mapping_\d+)\/(approve|retire)$/.exec(url.pathname);
+      if (request.method === 'POST' && mappingAliasMatch) {
+        const body = await readJson(request);
+        const mapping = mappingAliasMatch[2] === 'approve' ? application.approveStudioMapping(mappingAliasMatch[1], body) : application.retireStudioMapping(mappingAliasMatch[1], body);
+        return sendJson(response, 200, { mapping });
+      }
       const buildingMatch = /^\/api\/buildings\/(building_\d+)$/.exec(url.pathname);
       if (request.method === 'GET' && buildingMatch) return sendJson(response, 200, { building: application.getBuilding(buildingMatch[1]) });
       const buildingStoreyMatch = /^\/api\/buildings\/(building_\d+)\/storeys$/.exec(url.pathname);
@@ -61,6 +86,8 @@ function createServer(application = createApplication()) {
       }
       const runMatch = /^\/api\/runs\/(run_\d+)$/.exec(url.pathname);
       if (request.method === 'GET' && runMatch) return sendJson(response, 200, application.getRun(runMatch[1]));
+      const runClassificationsMatch = /^\/api\/runs\/(run_\d+)\/classifications$/.exec(url.pathname);
+      if (request.method === 'GET' && runClassificationsMatch) return sendJson(response, 200, application.getClassifications(runClassificationsMatch[1]));
       const reprocessMatch = /^\/api\/runs\/(run_\d+)\/reprocess$/.exec(url.pathname);
       if (request.method === 'POST' && reprocessMatch) return sendJson(response, 202, { processingRun: application.reprocess(reprocessMatch[1]) });
       return sendJson(response, 404, { error: 'Not found.' });
@@ -94,6 +121,7 @@ async function readUpload(request) {
     filename: drawingPart.filename,
     content: drawingPart.value,
     fallbackUnit: fields.fallbackUnit,
+    studioId: fields.studioId,
     projectId: fields.projectId,
     buildingId: fields.buildingId,
     storeyId: fields.storeyId,

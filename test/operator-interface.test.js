@@ -31,8 +31,10 @@ test('operator browser flow uploads a clean DXF and renders its completed BOQ', 
   await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes('boq: running'));
   await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes(': completed'));
   await page.waitForFunction(() => document.querySelectorAll('#boq-lines tr').length === 9);
+  await page.waitForFunction(() => document.querySelector('#classification-review').textContent.includes('source objects classified'));
 
   assert.equal(await page.locator('#boq-lines tr').count(), 9);
+  assert.match(await page.locator('#classification-review').textContent(), /Category.*Exact catalog item/s);
   const floorRow = page.locator('#boq-lines tr').filter({ hasText: 'Floor finish area' });
   assert.match(await floorRow.textContent(), /27\.72/);
   assert.match(await floorRow.textContent(), /measured/);
