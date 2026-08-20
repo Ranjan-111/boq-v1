@@ -3,7 +3,7 @@
 **Baseline commit:** see `git log -1` — the R2 unified provenance record.
 **Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`,
 then replacing the two per-tier provenance shapes with one record (R2).
-**Suite:** 122 tests, all passing together (`npm test`).
+**Suite:** 140 tests, all passing together (`npm test`).
 
 ## What `main` now contains
 
@@ -34,6 +34,7 @@ recreated as live work.
 ```
 src/application.js    lifecycle, run schema, PDF + raster measurement
 src/provenance.js     the unified SourceObject / Contribution record (R2)
+src/repository.js     SQLite store and schema (R1) -- the only file that sees SQL
 src/classification.js evidence fusion, studio mappings, stable digest()
 src/dxf.js            DXF parse, unit resolution, measurement rules
 src/ocr-results.js    OCR normalization, forbidden-field enforcement
@@ -100,12 +101,98 @@ raster cannot reach it end to end — their setup gates refuse to enter measurem
 without at least one region, which is the stronger guarantee — so for them it is a
 defensive state covered at the derivation seam.
 
-**Migration losslessness.** Every DXF handle carried over: 0 lost. Wall and room
-entities (`HATCH`/`LWPOLYLINE`) carry full polygon extents. Block references
-(`INSERT` — doors, windows, furniture) carry only their **insertion point**, so their
-`bounds` is a degenerate point box. Resolving a block's real footprint needs the
-`BLOCKS` section geometry, which the parser does not expand. A viewer can locate
-these objects but cannot fit their true extent.
+**Block references now carry real footprints.** `parseDxf` reads the `BLOCKS`
+section (name, base point, definition geometry) and an `INSERT` is placed as
+`insertion + R(rotation) * S(scale) * (point - base)`, so rotation (code 50) and
+scale (41/42) are reflected in `bounds`. Block bodies are parsed leniently — their
+geometry only ever sets bounds, never a quantity, so an entity type the measurement
+rules reject must not fail the drawing.
+
+`SourceObject.geometryResolution` records how the geometry was obtained:
+
+| value | meaning |
+|---|---|
+| `native` | read straight off the entity (`HATCH`, `LWPOLYLINE`, PDF/raster regions) |
+| `block-definition` | an `INSERT` expanded from its block definition — a real footprint |
+| `insertion-point` | the block could not be found; `bounds` is a point, **not** an extent |
+
+An `INSERT` whose block has no definition keeps its insertion point and is marked;
+no extent is invented and the run does not fail. Degenerate bounds in
+`clean-plan.dxf`: **8 of 15 before, 0 after**.
+
+## Persistence (R1) — implemented
+
+SQLite (`better-sqlite3`, WAL) behind `src/repository.js`. `src/application.js`
+calls repository methods and never sees SQL. Plain portable SQL, no ORM, so the
+move to Postgres is a swap of one file.
+
+**Tables:** `projects`, `buildings`, `storeys`, `boq_versions`, `source_documents`
+(bytes in a `content` BLOB, assignment in real columns), `processing_runs`,
+`source_objects`, `boq_lines`, `contributions`, `audit_events`.
+
+`source_objects` carries `min_x, min_y, max_x, max_y` as four indexed REAL columns
+with the polygon alongside as `geometry_json`. Fitting a viewport is a range query
+on four numbers; nothing queries inside a polygon, so it stays JSON. The shape rule
+throughout is relational where we query, JSON where we do not.
+
+`audit_events` is append-only **enforced by the store**: `BEFORE UPDATE` and
+`BEFORE DELETE` triggers `RAISE(ABORT)`. That is a property of the database, not a
+convention the next contributor has to remember.
+
+### Source objects are deduplicated, one row per `sourceObjectId`
+
+R2 defines `sourceObjectId` to be stable across reprocessing of one document
+version, and geometry is a pure function of immutable inputs (that version's bytes,
+the parser version). Two runs of one version therefore describe the same object, so
+storing N identical copies is exactly what a primary key exists to prevent — and it
+is what would turn the rollup into a fan-out join.
+
+Per-run audit correctness is not lost: what a run claimed is recoverable through
+run → lines → contributions → object. Only the shared, immutable description is
+shared.
+
+Two consequences, both handled explicitly rather than left to chance:
+
+- **Divergent geometry is never silently overwritten.** If a write arrives for an
+  existing id with different geometry (a parser change under a stored version), the
+  first write wins — runs keep the geometry they actually measured — and a
+  `source_object_geometry_divergence` event is appended to the audit trail.
+- **Navigation fields are not authoritative on the row.** `building_id`,
+  `storey_id` and `sheet_id` are the assignment *as first observed*, and an operator
+  can reassign a document later. The application overlays the assignment of the run
+  it is reading when it materialises an object. The columns remain for scoped
+  queries and audit, not as current truth.
+
+### The rollup is four queries, whatever the tree
+
+Rendering a project draws a rollup for the project, each building and each storey.
+Loading per rollup would be N+1 in the number of storeys, so the whole tree is
+loaded once and every nested rollup is computed from that context:
+
+1. candidate completed, non-superseded runs for every document in scope
+2. their BOQ lines
+3. their contributions
+4. the source objects those contributions reference
+
+Measured: **4 queries at 1, 5, 20 and 50 storeys**, and 4 at 100 contributing runs.
+
+Which run wins for an assignment key — latest document revision per
+(BOQ version, project, building, storey, sheet), tie-broken by run sequence — stays
+in JS deliberately. It is the rule that decides which revision counts, and
+expressing it in SQL would risk moving a quantity for no gain.
+
+### Working set
+
+The maps in `createApplication` are a working set written through on every state
+transition and rehydrated from the store on construction — one code path, not an
+in-memory alternative implementation. Only `parsedDocument` is transient (a parse
+cache, re-derivable from the stored bytes).
+
+### Migration trigger — noted, not acted on
+
+Move to Postgres when **either** is true: the project goes multi-tenant SaaS, or it
+runs more than one app node. Not before. The repository interface is deliberately
+narrow so that day is a swap rather than a rewrite.
 
 ## Known gaps (not regressions — never built)
 

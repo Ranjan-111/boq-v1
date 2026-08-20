@@ -7,11 +7,16 @@ const { inspectRaster, RASTER_VERSIONS } = require('./ingestion/raster');
 const { LIMITS, LimitError } = require('./ingestion/limits');
 const { OCR_LIMITS, normalizeOcrResults, presentOcrBatch } = require('./ocr-results');
 const { createSourceObject, createContribution, buildProvenance, measurementStatusFor, signedSum, PROVENANCE_VERSION } = require('./provenance');
+const { createRepository } = require('./repository');
 
 const VERSIONS = DXF_VERSIONS;
 const PROCESSING_STAGE_DELAY_MS = 150;
 
-function createApplication({ schedule = setTimeout } = {}) {
+function createApplication({ schedule = setTimeout, file = ':memory:', repository = createRepository({ file }) } = {}) {
+  /* SQLite is the system of record. The maps below are a working set that is
+     written through on every state transition and rehydrated from the store on
+     construction -- one code path, not an in-memory alternative. Rollups, the
+     one genuinely set-shaped read, go to SQL directly. */
   const sourceDocuments = new Map();
   const runs = new Map();
   const projects = new Map();
@@ -28,6 +33,41 @@ function createApplication({ schedule = setTimeout } = {}) {
   let storeySequence = 0;
   let boqVersionSequence = 0;
   let mappingSequence = 0;
+
+  const TRANSIENT_RUN_FIELDS = ['parsedDocument'];
+  function persistRun(run) {
+    /* A run's trailing write can land after the owning store was deliberately
+       closed. Dropping it then is intended -- closing the store ends the
+       session -- and must not surface as an unhandled rejection. */
+    if (!run || (repository.isOpen && !repository.isOpen())) return;
+    const record = { ...run };
+    for (const field of TRANSIENT_RUN_FIELDS) delete record[field];
+    repository.saveRun(record);
+  }
+  function persistDocument(document) { if (document) repository.saveSourceDocument(document); }
+  function persistScopeOf(document) {
+    if (document.storeyId && storeys.has(document.storeyId)) persistStorey(storeys.get(document.storeyId));
+    if (document.buildingId && buildings.has(document.buildingId)) persistBuilding(buildings.get(document.buildingId));
+    if (document.projectId && projects.has(document.projectId)) persistProject(projects.get(document.projectId));
+  }
+  function persistProject(project) { repository.saveEntity('projects', project.id, { name: project.name, version: project.version, current_boq_version_id: project.currentBoqVersionId ?? null }, project); }
+  function persistBuilding(building) { repository.saveEntity('buildings', building.id, { project_id: building.projectId, name: building.name, version: building.version }, building); }
+  function persistStorey(storey) { repository.saveEntity('storeys', storey.id, { building_id: storey.buildingId, project_id: storey.projectId, name: storey.name, level: storey.level ?? null, version: storey.version }, storey); }
+  function persistBoqVersion(version) { repository.saveEntity('boq_versions', version.id, { project_id: version.projectId, version: version.version, label: version.label ?? null, status: version.status }, version); }
+
+  function hydrate() {
+    const sequenceOf = (id) => Number.parseInt(String(id).split('_').at(-1), 10) || 0;
+    for (const project of repository.allEntities('projects')) { projects.set(project.id, project); projectSequence = Math.max(projectSequence, sequenceOf(project.id)); }
+    for (const building of repository.allEntities('buildings')) { buildings.set(building.id, building); buildingSequence = Math.max(buildingSequence, sequenceOf(building.id)); }
+    for (const storey of repository.allEntities('storeys')) { storeys.set(storey.id, storey); storeySequence = Math.max(storeySequence, sequenceOf(storey.id)); }
+    for (const version of repository.allEntities('boq_versions')) { boqVersions.set(version.id, version); boqVersionSequence = Math.max(boqVersionSequence, sequenceOf(version.id)); }
+    for (const document of repository.allSourceDocuments()) { sourceDocuments.set(document.id, document); sourceSequence = Math.max(sourceSequence, sequenceOf(document.id)); }
+    for (const runId of repository.allRunIds()) {
+      const run = repository.getRun(runId);
+      if (run) { runs.set(run.id, run); runSequence = Math.max(runSequence, sequenceOf(run.id)); }
+    }
+  }
+  hydrate();
 
   function requireProject(projectId) {
     const project = projects.get(projectId);
@@ -92,7 +132,7 @@ function createApplication({ schedule = setTimeout } = {}) {
   }
   function invalidateRuns(sourceDocumentId) {
     for (const run of runs.values()) {
-      if (run.sourceDocumentId === sourceDocumentId && ['ingestion', 'awaiting_setup', 'awaiting_calibration', 'awaiting_trace', 'awaiting_confirmation', 'measurement', 'boq', 'completed'].includes(run.status)) run.superseded = true;
+      if (run.sourceDocumentId === sourceDocumentId && ['ingestion', 'awaiting_setup', 'awaiting_calibration', 'awaiting_trace', 'awaiting_confirmation', 'measurement', 'boq', 'completed'].includes(run.status)) { run.superseded = true; persistRun(run); }
     }
   }
 
@@ -100,7 +140,10 @@ function createApplication({ schedule = setTimeout } = {}) {
     if (!String(name || '').trim()) throw new InputError('A project name is required.');
     const project = { id: `project_${String(++projectSequence).padStart(4, '0')}`, name: String(name).trim(), version: 1, buildingIds: [], sourceDocumentIds: [], boqVersionIds: [], currentBoqVersionId: null };
     projects.set(project.id, project);
+    persistProject(project);
     project.currentBoqVersionId = createBoqVersion({ projectId: project.id, label: 'Initial BOQ' }).id;
+    persistProject(project);
+    repository.appendAudit({ kind: 'project_created', subjectId: project.id, payload: { name: project.name } });
     return presentProject(project);
   }
 
@@ -110,6 +153,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     const building = { id: `building_${String(++buildingSequence).padStart(4, '0')}`, projectId: project.id, name: String(name).trim(), version: 1, storeyIds: [], sourceDocumentIds: [] };
     buildings.set(building.id, building);
     project.buildingIds.push(building.id);
+    persistBuilding(building); persistProject(project);
     return presentBuilding(building);
   }
 
@@ -119,6 +163,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     const storey = { id: `storey_${String(++storeySequence).padStart(4, '0')}`, buildingId: building.id, projectId: building.projectId, name: String(name).trim(), level, version: 1, sourceDocumentIds: [] };
     storeys.set(storey.id, storey);
     building.storeyIds.push(storey.id);
+    persistStorey(storey); persistBuilding(building);
     return presentStorey(storey);
   }
 
@@ -127,6 +172,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     const version = { id: `boqv_${String(++boqVersionSequence).padStart(4, '0')}`, projectId: project.id, version: project.boqVersionIds.length + 1, label: String(label || 'BOQ version'), status: 'open' };
     boqVersions.set(version.id, version);
     project.boqVersionIds.push(version.id);
+    persistBoqVersion(version); persistProject(project);
     project.currentBoqVersionId = version.id;
     return { ...version };
   }
@@ -232,6 +278,9 @@ function createApplication({ schedule = setTimeout } = {}) {
     };
     sourceDocuments.set(sourceDocument.id, sourceDocument);
     addAssignmentReference(sourceDocument);
+    persistDocument(sourceDocument);
+    persistScopeOf(sourceDocument);
+    repository.appendAudit({ kind: 'source_document_created', subjectId: sourceDocument.id, payload: { filename: sourceDocument.filename, version: sourceDocument.version, contentSha256: sourceDocument.contentSha256 } });
     return presentSourceDocument(sourceDocument);
   }
 
@@ -305,11 +354,23 @@ function createApplication({ schedule = setTimeout } = {}) {
     sourceDocument.currentProcessingRunId = run.id;
     if (['pdf', 'png', 'jpeg'].includes(sourceDocument.format) && replaySetup?.status === 'ready') run.setupReplay = structuredClone(replaySetup);
     runs.set(run.id, run);
+    persistRun(run);
+    repository.appendAudit({ kind: 'run_started', subjectId: run.id, payload: { sourceDocumentId: run.sourceDocumentId } });
     schedule(() => advance(run), PROCESSING_STAGE_DELAY_MS);
     return presentRun(run, sourceDocument);
   }
 
-  async function advance(run) {
+  /* Deliberately not async: awaiting here would turn the fully synchronous DXF
+     path asynchronous and change when callers observe a completed run. The body
+     of advanceRun executes synchronously up to its first await, so persist once
+     immediately and again when any async work settles. */
+  function advance(run) {
+    const settled = advanceRun(run);
+    persistRun(run);
+    return settled.then(() => persistRun(run), () => persistRun(run));
+  }
+
+  async function advanceRun(run) {
     if (run.superseded) return;
     const source = sourceDocuments.get(run.sourceDocumentId);
     if ((['png', 'jpeg'].includes(source?.format) || (source?.format === 'pdf' && (source.rasterPages || run.setup.route === 'raster'))) && !isCurrentRasterRun(run, source)) {
@@ -520,6 +581,8 @@ function createApplication({ schedule = setTimeout } = {}) {
     const source = sourceDocuments.get(run.sourceDocumentId);
     if (!isCurrentRasterRun(run, source)) throw new ConflictError('This raster run is stale; reprocess the current source before changing raster state.');
     source.rasterPages = structuredClone(run.pages);
+    persistDocument(source);
+    persistRun(run);
   }
 
   function enterRasterGate(run, customBlockedReason = null) {
@@ -594,6 +657,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     }
     persistRasterRun(run);
     enterRasterGate(run);
+    persistRun(run);
     return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), page: presentRasterPage(page) };
   }
 
@@ -608,6 +672,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     page.regions.push(region);
     persistRasterRun(run);
     enterRasterGate(run);
+    persistRun(run);
     return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), region: { ...region } };
   }
 
@@ -621,7 +686,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     if (input && Object.hasOwn(input, 'category')) region.category = normalizeRasterCategory(input.category);
     region.lifecycle = 'traced'; region.revision += 1; region.audit.push({ action: 'updated', revision: region.revision });
     region.history ||= []; region.history.push(prior);
-    persistRasterRun(run); enterRasterGate(run);
+    persistRasterRun(run); enterRasterGate(run); persistRun(run);
     return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), region: { ...region } };
   }
 
@@ -633,7 +698,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     region.history ||= [];
     region.history.push({ revision: region.revision, points: structuredClone(region.points), category: region.category, lifecycle: region.lifecycle, reason: 'deleted' });
     region.lifecycle = 'deleted'; region.revision += 1; region.deletedAt = new Date().toISOString(); region.tombstone = { id: region.id, deletedAt: region.deletedAt, revision: region.revision }; region.audit.push({ action: 'deleted', revision: region.revision });
-    persistRasterRun(run); enterRasterGate(run);
+    persistRasterRun(run); enterRasterGate(run); persistRun(run);
     return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), region: { ...region } };
   }
 
@@ -644,7 +709,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     assertExpectedRevisions(page, region, input, true);
     if (!region.category) throw new InputError('Classify the raster region before confirmation.');
     region.lifecycle = 'confirmed'; region.revision += 1; region.audit.push({ action: 'confirmed', revision: region.revision });
-    persistRasterRun(run); enterRasterGate(run);
+    persistRasterRun(run); enterRasterGate(run); persistRun(run);
     return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), region: { ...region } };
   }
 
@@ -689,27 +754,49 @@ function createApplication({ schedule = setTimeout } = {}) {
     return [...sourceDocuments.values()].filter((sourceDocument) => ids.includes(sourceDocument.id));
   }
 
-  function rollupForSourceIds(ids, scope, scopeId, requestedBoqVersionId = null) {
+  function rollupForSourceIds(ids, scope, scopeId, requestedBoqVersionId = null, context = null) {
     const documents = sourceDocumentsFor(ids);
+    const byId = new Map(documents.map((document) => [document.id, document]));
+    /* One query for every candidate run across every document in scope. The
+       winner-per-assignment policy below stays in JS deliberately: it is the
+       rule that decides which revision counts, and expressing it in SQL would
+       risk moving a quantity for no gain. */
+    const candidates = context ? context.candidates.filter((entry) => byId.has(entry.sourceDocumentId)) : repository.completedRuns([...byId.keys()]);
     const selected = new Map();
-    for (const sourceDocument of documents) {
-      for (const run of runs.values()) {
-        const snapshot = run.assignmentSnapshot;
-        if (run.sourceDocumentId !== sourceDocument.id || run.status !== 'completed' || run.superseded || !run.boq || !snapshot) continue;
-        if (requestedBoqVersionId && snapshot.boqVersionId !== requestedBoqVersionId) continue;
-        const contributionKey = [snapshot.boqVersionId || run.id, snapshot.projectId, snapshot.buildingId, snapshot.storeyId, snapshot.sourceSheet].join('|');
-        const previous = selected.get(contributionKey);
-        if (!previous || snapshot.sourceDocumentVersion > previous.run.assignmentSnapshot.sourceDocumentVersion || (snapshot.sourceDocumentVersion === previous.run.assignmentSnapshot.sourceDocumentVersion && run.sequence > previous.run.sequence)) {
-          selected.set(contributionKey, { sourceDocument, run });
-        }
+    for (const { id: runId, sourceDocumentId, envelope } of candidates) {
+      const sourceDocument = byId.get(sourceDocumentId);
+      const snapshot = envelope?.assignmentSnapshot;
+      if (!sourceDocument || !snapshot || !envelope.boqShape) continue;
+      if (requestedBoqVersionId && snapshot.boqVersionId !== requestedBoqVersionId) continue;
+      const contributionKey = [snapshot.boqVersionId || runId, snapshot.projectId, snapshot.buildingId, snapshot.storeyId, snapshot.sourceSheet].join('|');
+      const previous = selected.get(contributionKey);
+      const candidate = { sourceDocument, runId, envelope, snapshot, sequence: envelope.sequence };
+      if (!previous || snapshot.sourceDocumentVersion > previous.snapshot.sourceDocumentVersion || (snapshot.sourceDocumentVersion === previous.snapshot.sourceDocumentVersion && candidate.sequence > previous.sequence)) {
+        selected.set(contributionKey, candidate);
       }
     }
+    /* Three more queries for the lines, contributions and source objects of
+       every selected run at once -- four in total, whatever the run count. */
+    const runIds = [...selected.values()].map((entry) => entry.runId);
+    const loaded = context ? context.slice(runIds) : repository.resultsFor(runIds);
     const lines = new Map();
     const contributions = [];
     const sourceObjects = new Map();
     const unitDecisions = [];
-    for (const { sourceDocument, run } of selected.values()) {
-      const snapshot = run.assignmentSnapshot;
+    const loadedById = new Map(loaded.sourceObjects.map((object) => [object.sourceObjectId, object]));
+    for (const entry of selected.values()) {
+      const { sourceDocument, runId, envelope, snapshot } = entry;
+      const run = { id: runId, ...envelope, boq: { lines: loaded.linesByRun.get(runId) || [] } };
+      /* Where an object sits in the navigation tree is a property of the
+         assignment, not of the geometry, and an assignment can be changed after
+         the fact. The stored row records the assignment first observed; what a
+         rollup reports is the assignment of the run it is reading. */
+      for (const line of run.boq.lines) {
+        for (const contribution of line.provenance.contributions) {
+          const stored = loadedById.get(contribution.sourceObjectId);
+          if (stored) sourceObjects.set(stored.sourceObjectId, { ...stored, buildingId: snapshot.buildingId ?? null, storeyId: snapshot.storeyId ?? null, sheetId: snapshot.sourceSheet ?? stored.sheetId });
+        }
+      }
       const contribution = {
         key: [snapshot.boqVersionId || run.id, snapshot.projectId, snapshot.buildingId, snapshot.storeyId, snapshot.sourceSheet].join('|'),
         sourceDocumentId: snapshot.sourceDocumentId,
@@ -725,7 +812,6 @@ function createApplication({ schedule = setTimeout } = {}) {
       };
       contributions.push(contribution);
       unitDecisions.push({ storeyId: snapshot.storeyId, sourceDocumentId: snapshot.sourceDocumentId, decision: run.units });
-      for (const object of run.boq.sourceObjects || []) sourceObjects.set(object.sourceObjectId, object);
       for (const sourceLine of run.boq.lines) {
         const line = lines.get(sourceLine.measurement) || {
           measurement: sourceLine.measurement,
@@ -757,12 +843,30 @@ function createApplication({ schedule = setTimeout } = {}) {
     return { scope, scopeId, boqVersionId: requestedBoqVersionId, quantityPolicy: 'latest-document-revision-per-boq-version-and-source-sheet-assignment', lines: [...lines.values()], sourceObjects: [...sourceObjects.values()], sourceContributions: contributions, unitDecisions, typicalStoreyMultiplier: 'explicit-only' };
   }
 
-  function presentStorey(storey, requestedBoqVersionId = projects.get(storey.projectId).currentBoqVersionId) {
-    return { ...storey, sourceDocuments: sourceDocumentsFor(storey.sourceDocumentIds).map(presentSourceDocument), rollup: rollupForSourceIds(storey.sourceDocumentIds, 'storey', storey.id, requestedBoqVersionId) };
+  /* Rendering a project draws a rollup for the project, each building and each
+     storey. Loading per rollup would be N+1 in the number of storeys, so the
+     whole tree is loaded once here and every nested rollup is computed from it. */
+  function loadRollupContext(ids) {
+    const unique = [...new Set(ids)];
+    const candidates = repository.completedRuns(unique);
+    const results = repository.resultsFor(candidates.map((entry) => entry.id));
+    return {
+      candidates,
+      slice(runIds) {
+        const wanted = new Set(runIds);
+        const linesByRun = new Map([...results.linesByRun].filter(([runId]) => wanted.has(runId)));
+        return { linesByRun, sourceObjects: results.sourceObjects };
+      }
+    };
   }
-  function presentBuilding(building, requestedBoqVersionId = projects.get(building.projectId).currentBoqVersionId) {
+
+  function presentStorey(storey, requestedBoqVersionId = projects.get(storey.projectId).currentBoqVersionId, context = null) {
+    return { ...storey, sourceDocuments: sourceDocumentsFor(storey.sourceDocumentIds).map(presentSourceDocument), rollup: rollupForSourceIds(storey.sourceDocumentIds, 'storey', storey.id, requestedBoqVersionId, context) };
+  }
+  function presentBuilding(building, requestedBoqVersionId = projects.get(building.projectId).currentBoqVersionId, context = null) {
     const ids = [...building.sourceDocumentIds, ...building.storeyIds.flatMap((storeyId) => storeys.get(storeyId)?.sourceDocumentIds || [])];
-    return { ...building, storeys: building.storeyIds.map((storeyId) => presentStorey(storeys.get(storeyId), requestedBoqVersionId)), rollup: rollupForSourceIds(ids, 'building', building.id, requestedBoqVersionId) };
+    const shared = context || loadRollupContext(ids);
+    return { ...building, storeys: building.storeyIds.map((storeyId) => presentStorey(storeys.get(storeyId), requestedBoqVersionId, shared)), rollup: rollupForSourceIds(ids, 'building', building.id, requestedBoqVersionId, shared) };
   }
   function presentProject(project, requestedBoqVersionId = project.currentBoqVersionId) {
     const ids = [
@@ -772,6 +876,7 @@ function createApplication({ schedule = setTimeout } = {}) {
         return [...(building?.sourceDocumentIds || []), ...(building?.storeyIds.flatMap((storeyId) => storeys.get(storeyId)?.sourceDocumentIds || []) || [])];
       })
     ];
+    const context = loadRollupContext(ids);
     return {
       id: project.id,
       name: project.name,
@@ -779,8 +884,8 @@ function createApplication({ schedule = setTimeout } = {}) {
       boqVersions: project.boqVersionIds.map((id) => ({ ...boqVersions.get(id) })),
       currentBoqVersionId: project.currentBoqVersionId,
       documentVersions: sourceDocumentsFor(ids).map(presentSourceDocument),
-      buildings: project.buildingIds.map((buildingId) => presentBuilding(buildings.get(buildingId), requestedBoqVersionId)),
-      rollup: rollupForSourceIds(ids, 'project', project.id, requestedBoqVersionId)
+      buildings: project.buildingIds.map((buildingId) => presentBuilding(buildings.get(buildingId), requestedBoqVersionId, context)),
+      rollup: rollupForSourceIds(ids, 'project', project.id, requestedBoqVersionId, context)
     };
   }
 
