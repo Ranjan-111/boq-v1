@@ -57,6 +57,13 @@ function measureDxf(sourceDocument, units, parsedDocument, { versions = DXF_VERS
 
   const sourceObjects = new Map();
   const register = (entity) => {
+    /* A block reference carries only its insertion point. Expanding the block
+       definition gives the real footprint, which is what a viewer needs to fit
+       a selection. An undefined block keeps the point and says so, rather than
+       inventing an extent. */
+    const placed = entity.type === 'INSERT' ? placeBlockGeometry(document.blocks?.[entity.block], entity) : null;
+    const geometry = placed || entity.points;
+    const geometryResolution = entity.type !== 'INSERT' ? 'native' : placed ? 'block-definition' : 'insertion-point';
     const object = createSourceObject({
       sourceDocumentId: sourceDocument.id,
       sourceDocumentVersion: sourceDocument.version,
@@ -65,7 +72,8 @@ function measureDxf(sourceDocument, units, parsedDocument, { versions = DXF_VERS
       sheetId: sourceDocument.sourceSheet || sourceDocument.filename || null,
       geometrySource: 'dxf-entity',
       coordinateSpace: 'dxf',
-      geometry: entity.points,
+      geometry,
+      geometryResolution,
       nativeHandle: entity.handle
     });
     sourceObjects.set(object.sourceObjectId, object);
@@ -147,6 +155,8 @@ function parseDxf(content) {
   let insunitsPresent = false;
   const entities = [];
   let section = null;
+  const blocks = {};
+  let currentBlock = null;
   let sawHeader = false;
   let sawEntities = false;
   let sawEndsec = false;
@@ -178,7 +188,26 @@ function parseDxf(content) {
     if (section === 'BLOCKS' && code === 0 && value === 'BLOCK') {
       let end = index + 1;
       while (end < groups.length && groups[end][0] !== 0) end += 1;
-      inspectBlock(groups.slice(index + 1, end));
+      const header = groups.slice(index + 1, end);
+      inspectBlock(header);
+      currentBlock = readBlockHeader(header);
+      if (currentBlock) blocks[currentBlock.name] = currentBlock;
+      index = end;
+      continue;
+    }
+    if (section === 'BLOCKS' && code === 0 && value === 'ENDBLK') {
+      currentBlock = null;
+      index += 1;
+      continue;
+    }
+    if (section === 'BLOCKS' && code === 0 && currentBlock) {
+      /* Block bodies are read leniently: their geometry only ever sets bounds,
+         never a quantity, so an entity type the measurement rules do not accept
+         must not fail the whole drawing. Unknown types simply contribute no
+         points. */
+      let end = index + 1;
+      while (end < groups.length && groups[end][0] !== 0) end += 1;
+      currentBlock.points.push(...readBlockGeometry(value, groups.slice(index + 1, end)));
       index = end;
       continue;
     }
@@ -194,7 +223,50 @@ function parseDxf(content) {
   }
   if (section || !sawEntities || !sawEndsec) throw new InputError('Malformed DXF sections; re-export the affected drawing as a native DXF.');
   if (!sawHeader || !insunitsPresent) { insunits = null; insunitsInvalid = null; }
-  return { format: 'dxf', insunits, insunitsInvalid, entities };
+  return { format: 'dxf', insunits, insunitsInvalid, entities, blocks };
+}
+
+function readBlockHeader(groups) {
+  const group = (code) => groups.find(([groupCode]) => groupCode === code)?.[1] || '';
+  const name = group(2) || group(3);
+  if (!name) return null;
+  const baseX = Number(group(10));
+  const baseY = Number(group(20));
+  return { name, base: [Number.isFinite(baseX) ? baseX : 0, Number.isFinite(baseY) ? baseY : 0], points: [] };
+}
+
+/** Every 10/20 pair, plus a LINE's 11/21 endpoint. Deliberately tolerant. */
+function readBlockGeometry(type, groups) {
+  const points = [];
+  let x = null;
+  for (const [code, value] of groups) {
+    if (code === 10) { const parsed = Number(value); x = Number.isFinite(parsed) ? parsed : null; }
+    else if (code === 20 && x !== null) { const y = Number(value); if (Number.isFinite(y)) points.push([x, y]); x = null; }
+  }
+  if (type === 'LINE') {
+    const group = (code) => groups.find(([groupCode]) => groupCode === code)?.[1];
+    const endX = Number(group(11));
+    const endY = Number(group(21));
+    if (Number.isFinite(endX) && Number.isFinite(endY)) points.push([endX, endY]);
+  }
+  return points;
+}
+
+/* world = insertion + R(rotation) * S(scale) * (point - base) */
+function placeBlockGeometry(block, insert) {
+  if (!block || !block.points.length) return null;
+  const [baseX, baseY] = block.base;
+  const radians = (insert.rotation || 0) * Math.PI / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const scaleX = Number.isFinite(insert.xScale) ? insert.xScale : 1;
+  const scaleY = Number.isFinite(insert.yScale) ? insert.yScale : 1;
+  const [originX, originY] = insert.points[0] || [0, 0];
+  return block.points.map(([pointX, pointY]) => {
+    const localX = (pointX - baseX) * scaleX;
+    const localY = (pointY - baseY) * scaleY;
+    return [originX + localX * cos - localY * sin, originY + localX * sin + localY * cos];
+  });
 }
 
 function inspectBlock(groups) {
@@ -223,12 +295,18 @@ function readEntity(type, groups) {
     if (x !== null || entity.points.length < 3) throw malformedEntityError(type, entity.handle);
   }
   if (type === 'INSERT') {
-    /* An INSERT carries its insertion point at codes 10/20. The block's real
-       extent needs the BLOCKS definition, which this parser does not resolve,
-       so provenance gets a point rather than a footprint. */
+    /* Insertion point (10/20) plus the placement transform: scale (41/42) and
+       rotation (50). The block's own geometry is resolved separately, at
+       measurement time, from the BLOCKS section. */
     const x = Number(group(10));
     const y = Number(group(20));
     if (Number.isFinite(x) && Number.isFinite(y) && group(10) !== '' && group(20) !== '') entity.points.push([x, y]);
+    const xScale = Number(group(41));
+    const yScale = Number(group(42));
+    const rotation = Number(group(50));
+    entity.xScale = group(41) !== '' && Number.isFinite(xScale) ? xScale : 1;
+    entity.yScale = group(42) !== '' && Number.isFinite(yScale) ? yScale : 1;
+    entity.rotation = group(50) !== '' && Number.isFinite(rotation) ? rotation : 0;
   }
   if (['HATCH', 'LWPOLYLINE', 'INSERT'].includes(type) && (!entity.handle || !entity.layer)) throw malformedEntityError(type, entity.handle);
   if (type === 'INSERT' && !entity.block) throw malformedEntityError(type, entity.handle, 'its block reference is missing');

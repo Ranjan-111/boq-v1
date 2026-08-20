@@ -14,6 +14,9 @@ const PROVENANCE_VERSION = 'provenance-v2';
    so the Tier C guarantee survives all the way to an export. */
 const GEOMETRY_SOURCES = Object.freeze(['dxf-entity', 'native-vector', 'human-traced', 'model-proposed-confirmed']);
 const COORDINATE_SPACES = Object.freeze(['dxf', 'pdf-page', 'raster-pixel']);
+/* How the geometry was obtained. 'insertion-point' means only a placement was
+   recoverable -- the bounds is a point and must not be read as a footprint. */
+const GEOMETRY_RESOLUTIONS = Object.freeze(['native', 'block-definition', 'insertion-point']);
 const SIGNS = Object.freeze(['add', 'deduct']);
 const MEASUREMENT_STATUSES = Object.freeze(['measured', 'measured_zero', 'not_measurable']);
 
@@ -66,6 +69,7 @@ function sourceObjectId({ sourceDocumentId, sourceDocumentVersion, coordinateSpa
 function createSourceObject(input) {
   const geometrySource = requireMember(input.geometrySource, GEOMETRY_SOURCES, 'geometrySource');
   const coordinateSpace = requireMember(input.coordinateSpace, COORDINATE_SPACES, 'coordinateSpace');
+  const geometryResolution = requireMember(input.geometryResolution ?? 'native', GEOMETRY_RESOLUTIONS, 'geometryResolution');
   requireString(input.sourceDocumentId, 'sourceDocumentId');
   if (!Number.isInteger(input.sourceDocumentVersion)) throw new ProvenanceError('Provenance sourceDocumentVersion must be an integer.');
   const geometry = normalizePoints(input.geometry);
@@ -82,6 +86,7 @@ function createSourceObject(input) {
     pageId: input.pageId ?? null,
     geometrySource,
     coordinateSpace,
+    geometryResolution,
     geometry,
     bounds,
     transform: input.transform ?? null,
@@ -146,7 +151,7 @@ function buildProvenance({ contributions = [], quantity = 0, aggregation = null,
 }
 
 module.exports = {
-  PROVENANCE_VERSION, GEOMETRY_SOURCES, COORDINATE_SPACES, SIGNS, MEASUREMENT_STATUSES,
+  PROVENANCE_VERSION, GEOMETRY_SOURCES, COORDINATE_SPACES, GEOMETRY_RESOLUTIONS, SIGNS, MEASUREMENT_STATUSES,
   ProvenanceError, boundsOfPoints, normalizePoints, sourceObjectId,
   createSourceObject, createContribution, signedSum, measurementStatusFor, buildProvenance
 };
