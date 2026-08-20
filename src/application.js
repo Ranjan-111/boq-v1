@@ -5,6 +5,7 @@ const { asBytes, sniffContent } = require('./ingestion/sniff');
 const { inspectPdf, PDF_VERSIONS } = require('./ingestion/pdf');
 const { inspectRaster, RASTER_VERSIONS } = require('./ingestion/raster');
 const { LIMITS, LimitError } = require('./ingestion/limits');
+const { OCR_LIMITS, normalizeOcrResults, presentOcrBatch } = require('./ocr-results');
 
 const VERSIONS = DXF_VERSIONS;
 const PROCESSING_STAGE_DELAY_MS = 150;
@@ -273,6 +274,9 @@ function createApplication({ schedule = setTimeout } = {}) {
       boq: null,
       error: null,
       pages: [],
+      // OCR is an immutable evidence sidecar.  It is intentionally not part
+      // of the processing state machine, BOQ, calibration, or region state.
+      ocr: { status: 'idle', observations: [], batches: [], lastBatchKey: null },
       setup: ['pdf', 'png', 'jpeg'].includes(sourceDocument.format)
         ? { route: sourceDocument.format === 'pdf' ? 'vector-pdf' : 'raster', status: 'pending', pages: [] }
         : { route: 'dxf', status: 'not_required', pages: [] },
@@ -413,6 +417,67 @@ function createApplication({ schedule = setTimeout } = {}) {
     if (!run) throw new NotFoundError('Processing run not found.');
     return { runId: run.id, fusionVersion: FUSION_VERSION, mappingSnapshot: presentMappingSnapshot(run.mappingSnapshot), classifications: structuredClone(run.classifications || []) };
   }
+  function submitOcrResults(runId, pageIdValue, input) {
+    const run = runs.get(runId);
+    if (!run) throw new NotFoundError('Processing run not found.');
+    const page = run.pages.find((candidate) => candidate.sourcePageId === pageIdValue);
+    if (!page) throw new NotFoundError('OCR page not found.');
+    const batch = normalizeOcrResults(input, { run, page, pageId: pageIdValue });
+    const identityKey = digest({
+      sourceDocumentId: batch.sourceDocumentId,
+      sourceDocumentVersion: batch.sourceDocumentVersion,
+      contentSha256: batch.contentSha256,
+      processingRunId: batch.processingRunId,
+      pageId: batch.pageId,
+      regionId: batch.regionId,
+      engine: batch.engine,
+      engineVersion: batch.engineVersion,
+      modelVersion: batch.modelVersion,
+      language: batch.language,
+      normalizationVersion: batch.normalizationVersion,
+      coordinateSpace: batch.coordinateSpace,
+      pageTransform: batch.pageTransform,
+      rotation: batch.rotation,
+      cropPolygon: batch.cropPolygon
+    });
+    const existing = run.ocr.batches.find((candidate) => candidate.identityKey === identityKey);
+    if (existing) {
+      if (existing.batchKey !== batch.batchKey) throw new ConflictError('An immutable OCR observation set already exists for this run/page/model snapshot.');
+      return presentOcrResponse(run, existing);
+    }
+    if (run.ocr.observations.length + batch.observations.length > OCR_LIMITS.maxRunObservations) throw new LimitError(`A processing run may contain at most ${OCR_LIMITS.maxRunObservations} OCR observations.`, { limitName: 'ocrRunObservations', observed: run.ocr.observations.length + batch.observations.length, maximum: OCR_LIMITS.maxRunObservations, stage: 'ocr' });
+    const stored = { ...batch, identityKey };
+    run.ocr.batches.push(stored);
+    run.ocr.observations = [...run.ocr.batches.flatMap((candidate) => candidate.observations)].sort((left, right) => left.id.localeCompare(right.id));
+    run.ocr.status = 'completed';
+    run.ocr.lastBatchKey = stored.batchKey;
+    return presentOcrResponse(run, stored);
+  }
+
+  function presentOcrResponse(run, batch) {
+    const ocr = {
+      status: run.ocr.status,
+      lastBatchKey: run.ocr.lastBatchKey,
+      observations: structuredClone(run.ocr.observations),
+      batch: presentOcrBatch(batch)
+    };
+    return { ocr, observations: structuredClone(batch.observations), processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)) };
+  }
+
+  function getOcrResults(runId, pageIdValue) {
+    const run = runs.get(runId);
+    if (!run) throw new NotFoundError('Processing run not found.');
+    if (pageIdValue !== undefined && !run.pages.some((page) => page.sourcePageId === pageIdValue)) throw new NotFoundError('OCR page not found.');
+    const observations = run.ocr.observations.filter((observation) => pageIdValue === undefined || observation.pageId === pageIdValue);
+    return { status: run.ocr.status, observations: structuredClone(observations), observationCount: observations.length, lastBatchKey: run.ocr.lastBatchKey };
+  }
+
+  function getOcrStatus(runId) {
+    const run = runs.get(runId);
+    if (!run) throw new NotFoundError('Processing run not found.');
+    return { status: run.ocr.status, observationCount: run.ocr.observations.length, lastBatchKey: run.ocr.lastBatchKey };
+  }
+
   function confirmSourceSetup(runId, setup) {
     const run = runs.get(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
@@ -582,9 +647,12 @@ function createApplication({ schedule = setTimeout } = {}) {
   }
 
   function getRasterImage(runId, pageIdValue) {
-    const { run } = requireRasterPage(runId, pageIdValue);
+    const run = runs.get(runId);
+    if (!run) throw new NotFoundError('Processing run not found.');
+    if (!run.pages.some((page) => page.sourcePageId === pageIdValue)) throw new NotFoundError('Source page not found.');
     const source = sourceDocuments.get(run.sourceDocumentId);
     if (source.format === 'pdf') return { content: source.content, mediaType: source.mediaType, format: 'pdf' };
+    requireRasterPage(runId, pageIdValue);
     if (!['png', 'jpeg'].includes(source.format)) throw new InputError('Browser raster preview is available only for raster sources.');
     return { content: source.content, mediaType: source.mediaType };
   }
@@ -723,7 +791,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     return assignSourceDocument(sourceDocumentId, { projectId: storey.projectId, buildingId: storey.buildingId, storeyId, ...(typicalMultiplier === undefined && typicalStoreyMultiplier === undefined ? {} : { typicalMultiplier: typicalStoreyMultiplier ?? typicalMultiplier }) });
   }
 
-  return { createProject, createBuilding, createStorey, createBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+  return { createProject, createBuilding, createStorey, createBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
 }
 
 function classifyDocument(run, sourceDocument, entities) {
@@ -1091,6 +1159,7 @@ function presentRun(run, sourceDocument) {
     conflicts,
     superseded: run.superseded,
     pages: run.pages,
+    ocr: structuredClone(run.ocr || { status: 'idle', observations: [], batches: [], lastBatchKey: null }),
     inspection: run.inspection || null,
     setup: run.setup,
     blockedReasons: run.blockedReasons,

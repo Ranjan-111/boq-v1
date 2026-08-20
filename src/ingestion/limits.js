@@ -21,7 +21,15 @@ const LIMITS = Object.freeze({
   rasterPixelsPerMetreMax: 1e9,
   typicalMultiplierMax: 1000,
   pdfParseMs: 5000,
-  pdfCleanupMs: 250
+  pdfCleanupMs: 250,
+  // OCR is a bounded, optional sidecar. These limits apply to normalized
+  // browser results before they are attached to a run.
+  ocrObservations: 1000,
+  ocrRunObservations: 5000,
+  ocrTextLength: 2000,
+  ocrTotalTextChars: 100000,
+  ocrPolygonPoints: 8,
+  ocrSemanticEvidence: 8
 });
 
 class LimitError extends Error {

@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "ocr-corpus-manifest-v1",
+  "generationVersion": "ocr-corpus-v1",
+  "generatedAt": "2026-08-20",
+  "language": "eng",
+  "assets": {
+    "title-storey": {
+      "file": "title-storey.png",
+      "sha256": "8483b460a915d3fbb633704fe5adc43a2e221cd4cc4ed21def5b0b3c4c210400",
+      "bytes": 49116,
+      "width": 1800,
+      "height": 1000,
+      "rotation": 0,
+      "recordCount": 6,
+      "roles": [
+        "note",
+        "project",
+        "scale",
+        "sheet",
+        "storey",
+        "title"
+      ]
+    },
+    "numeric-units": {
+      "file": "numeric-units.png",
+      "sha256": "fd91d7550d95ce4162656c7dc2e1d74faf1dcbaebcc15fe11cf60dccd7f0d818",
+      "bytes": 45323,
+      "width": 1800,
+      "height": 1100,
+      "rotation": 0,
+      "recordCount": 8,
+      "roles": [
+        "decimal",
+        "dimension",
+        "level",
+        "suspicious-dimension",
+        "unit"
+      ]
+    },
+    "rotated-0": {
+      "file": "rotated-0.png",
+      "sha256": "f07e5f70035837e090155721339958831513cde388a32c6ad7b521e92a0aec9b",
+      "bytes": 17017,
+      "width": 1200,
+      "height": 800,
+      "rotation": 0,
+      "recordCount": 3,
+      "roles": [
+        "decimal",
+        "orientation",
+        "storey"
+      ]
+    },
+    "rotated-90": {
+      "file": "rotated-90.png",
+      "sha256": "b8a1f74ffd1a7b6c797b38d02bd4f502e98e5c1ec8b16eb0a0874acd4bf08300",
+      "bytes": 16454,
+      "width": 1200,
+      "height": 800,
+      "rotation": 90,
+      "recordCount": 3,
+      "roles": [
+        "decimal",
+        "orientation",
+        "storey"
+      ]
+    },
+    "rotated-180": {
+      "file": "rotated-180.png",
+      "sha256": "417f57a0696f026b5c8b0740191c34055deb9d9ab9d5f00fa4a399d74958d088",
+      "bytes": 17179,
+      "width": 1200,
+      "height": 800,
+      "rotation": 180,
+      "recordCount": 3,
+      "roles": [
+        "decimal",
+        "orientation",
+        "storey"
+      ]
+    },
+    "rotated-270": {
+      "file": "rotated-270.png",
+      "sha256": "d16846abe5c3c299002cb5ce3cbb8636aac2bae6eb50d1e2a0dde57115bc1c90",
+      "bytes": 15511,
+      "width": 1200,
+      "height": 800,
+      "rotation": 270,
+      "recordCount": 3,
+      "roles": [
+        "decimal",
+        "orientation",
+        "storey"
+      ]
+    },
+    "large-sheet": {
+      "file": "large-sheet.png",
+      "sha256": "2d8247aa9d8122e5abcbb0402b7aab4cfcde9c8ce0d66449d1795560b1991512",
+      "bytes": 227728,
+      "width": 4000,
+      "height": 3000,
+      "rotation": 0,
+      "recordCount": 50,
+      "roles": [
+        "large-sheet-row",
+        "storey",
+        "title"
+      ]
+    }
+  }
+}

@@ -14,6 +14,16 @@ function wait(milliseconds = 20) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+async function waitUntil(app, runId, predicate, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const state = app.getRun(runId);
+    if (predicate(state)) return state;
+    await wait(20);
+  }
+  return app.getRun(runId);
+}
+
 test('raster gates expose per-page calibration and trace blockers', async () => {
   const app = delayedApplication();
   const source = app.createSourceDocument({ filename: 'plan.png', content: png });
@@ -54,8 +64,7 @@ test('mixed PDFs fail closed instead of omitting vector quantities', async () =>
   const app = delayedApplication();
   const source = app.createSourceDocument({ filename: 'mixed.pdf', content: mixedPdf });
   const run = app.startProcessing(source.id);
-  await wait(250);
-  const state = app.getRun(run.id);
+  const state = await waitUntil(app, run.id, (candidate) => candidate.status !== 'ingestion');
   assert.equal(state.status, 'failed');
   assert.equal(state.errorDetails.code, 'mixed_pdf_unsupported');
   assert.match(state.error, /vector quantities and raster regions cannot be measured together/i);

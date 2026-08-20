@@ -13,6 +13,7 @@ const rollupSummary = document.querySelector('#rollup-summary');
 const rollupLines = document.querySelector('#rollup-lines');
 const classificationReview = document.querySelector('#classification-review');
 const rasterWorkflow = document.querySelector('#raster-workflow');
+const rasterWorkflowTitle = document.querySelector('#raster-workflow-title');
 const rasterStatus = document.querySelector('#raster-status');
 const rasterPageSelect = document.querySelector('#raster-page-select');
 const rasterImage = document.querySelector('#raster-image');
@@ -23,6 +24,17 @@ const rasterPointY = document.querySelector('#raster-point-y');
 const rasterAddPoint = document.querySelector('#raster-add-point');
 const rasterClearPoints = document.querySelector('#raster-clear-points');
 const rasterRenderError = document.querySelector('#raster-render-error');
+const ocrWorkflow = document.querySelector('#ocr-workflow');
+const ocrStatus = document.querySelector('#ocr-status');
+const ocrProgress = document.querySelector('#ocr-progress');
+const ocrRunButton = document.querySelector('#ocr-run');
+const ocrAbortButton = document.querySelector('#ocr-abort');
+const ocrResults = document.querySelector('#ocr-results');
+const ocrCropX = document.querySelector('#ocr-crop-x');
+const ocrCropY = document.querySelector('#ocr-crop-y');
+const ocrCropWidth = document.querySelector('#ocr-crop-width');
+const ocrCropHeight = document.querySelector('#ocr-crop-height');
+const ocrRotation = document.querySelector('#ocr-rotation');
 const rasterCalibrationForm = document.querySelector('#raster-calibration-form');
 const rasterCalibrationSubmit = document.querySelector('#raster-calibration-submit');
 const rasterCorrectCalibration = document.querySelector('#raster-correct-calibration');
@@ -57,6 +69,170 @@ let rasterPreview = null;
 let rasterRenderToken = 0;
 let pdfjsPromise;
 let pdfPreviewSession = null;
+let ocrController = null;
+let ocrControllerEngine = null;
+let ocrOnlyPdf = false;
+
+function ocrEngineFromInjection() {
+  const injected = window.__BOQ_OCR_ENGINE__;
+  if (typeof injected === 'function') return injected();
+  if (injected) return injected;
+  return window.BoqOcrEngine?.selectEngine({
+    provider: 'tesseract-js',
+    engineVersion: '7.0.0',
+    modelVersion: 'eng-4.0.0_best_int',
+    language: 'eng',
+    assetHash: '45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91',
+    cachedAssetHash: '5dc5d8d640a212c9d6184921ba103b186f50e0fed9ee716c53e6b312b400d747',
+    totalBytes: 2952873,
+    workerPath: '/ocr/vendor/tesseract.js/dist/worker.min.js',
+    corePath: '/ocr/vendor/tesseract.js-core',
+    langPath: '/ocr/vendor/@tesseract.js-data/eng/4.0.0_best_int',
+    gzip: true,
+    workerBlobURL: false
+  });
+}
+
+function ensureOcrController() {
+  if (ocrController) return ocrController;
+  const engine = ocrEngineFromInjection();
+  if (!engine || !window.BoqOcrEngine) {
+    renderOcrState({ state: 'unsupported', error: { message: 'No browser-local OCR adapter is available.' } });
+    return null;
+  }
+  ocrControllerEngine = engine;
+  const cache = window.__BOQ_OCR_CACHE__ || (window.BoqOcrModelCache ? new window.BoqOcrModelCache.ModelCache() : null);
+  try {
+    ocrController = window.BoqOcrEngine.createOcrController({ engine, cache });
+    ocrController.subscribe(renderOcrState);
+    window.BoqOcrUi = { controller: ocrController, normalize: window.BoqOcrNormalize };
+    return ocrController;
+  } catch (error) {
+    renderOcrState({ state: 'unsupported', error: { message: error.message } });
+    return null;
+  }
+}
+
+function renderOcrState(snapshot = {}) {
+  if (!ocrStatus) return;
+  const state = snapshot.state || 'idle';
+  const labels = {
+    idle: 'OCR idle.', 'checking-cache': 'Checking the exact OCR model cache…', downloading: 'Downloading OCR model…',
+    ready: 'OCR model ready.', 'offline-cache-hit': 'Offline: exact cached OCR model ready.', 'offline-missing': 'OCR unavailable offline; continue without OCR.',
+    running: 'Recognizing the selected crop…', completed: 'OCR completed; evidence only.', unsupported: 'OCR unsupported in this browser; continue without OCR.',
+    evicted: 'OCR model cache was evicted; download it again when online.', aborted: 'OCR stopped; the drawing workflow is unchanged.', failed: 'OCR failed; the drawing workflow is unchanged.'
+  };
+  ocrStatus.dataset.state = state;
+  ocrStatus.textContent = labels[state] || `OCR ${state}.`;
+  if (snapshot.error?.message && ['failed', 'unsupported', 'offline-missing', 'evicted', 'aborted'].includes(state)) ocrStatus.textContent += ` ${snapshot.error.message}`;
+  if (ocrProgress) { ocrProgress.hidden = !['downloading', 'running'].includes(state); ocrProgress.value = Math.max(0, Math.min(100, Number(snapshot.progress?.percent || 0))); }
+  if (ocrRunButton) ocrRunButton.disabled = ['checking-cache', 'downloading', 'running'].includes(state);
+  if (ocrAbortButton) ocrAbortButton.hidden = !['downloading', 'running'].includes(state);
+}
+
+function boundedOcrCrop(page) {
+  const dimensions = rasterDimensions(page);
+  const width = dimensions.width;
+  const height = dimensions.height;
+  const x = Number(ocrCropX?.value || 0); const y = Number(ocrCropY?.value || 0);
+  const cropWidth = Number(ocrCropWidth?.value || 0); const cropHeight = Number(ocrCropHeight?.value || 0);
+  if (![width, height, x, y, cropWidth, cropHeight].every(Number.isFinite) || width <= 0 || height <= 0 || cropWidth <= 0 || cropHeight <= 0 || x < 0 || y < 0 || x + cropWidth > width || y + cropHeight > height) throw new Error('Select a finite crop wholly inside the raster page.');
+  if (cropWidth * cropHeight > 25 * 1000 * 1000) throw new Error('OCR crop exceeds the bounded pixel limit; select a smaller region.');
+  return { x, y, width: cropWidth, height: cropHeight };
+}
+
+function captureOcrImage(crop, rotation = 0) {
+  const source = document.createElement('canvas');
+  source.width = Math.max(1, Math.round(crop.width)); source.height = Math.max(1, Math.round(crop.height));
+  const context = source.getContext('2d');
+  let captured = false;
+  if (rasterImage && !rasterImage.hidden && rasterImage.complete && rasterImage.naturalWidth) { context.drawImage(rasterImage, crop.x, crop.y, crop.width, crop.height, 0, 0, source.width, source.height); captured = true; }
+  else if (rasterPdfCanvas && !rasterPdfCanvas.hidden && rasterPreview) {
+    const scaleX = rasterPdfCanvas.width / rasterPreview.canonicalWidth; const scaleY = rasterPdfCanvas.height / rasterPreview.canonicalHeight;
+    context.drawImage(rasterPdfCanvas, crop.x * scaleX, crop.y * scaleY, crop.width * scaleX, crop.height * scaleY, 0, 0, source.width, source.height); captured = true;
+  }
+  if (!captured) throw new Error('The raster preview is not ready for OCR.');
+  const degrees = ((Number(rotation || 0) % 360) + 360) % 360;
+  if (degrees === 0) return source;
+  const rotated = document.createElement('canvas');
+  rotated.width = degrees === 90 || degrees === 270 ? source.height : source.width;
+  rotated.height = degrees === 90 || degrees === 270 ? source.width : source.height;
+  const rotatedContext = rotated.getContext('2d');
+  if (degrees === 90) { rotatedContext.translate(rotated.width, 0); rotatedContext.rotate(Math.PI / 2); }
+  else if (degrees === 180) { rotatedContext.translate(rotated.width, rotated.height); rotatedContext.rotate(Math.PI); }
+  else if (degrees === 270) { rotatedContext.translate(0, rotated.height); rotatedContext.rotate(-Math.PI / 2); }
+  rotatedContext.drawImage(source, 0, 0);
+  return rotated;
+}
+
+function renderOcrResults(observations = []) {
+  if (!ocrResults) return;
+  ocrResults.replaceChildren(...observations.map((observation) => {
+    const item = document.createElement('div');
+    item.dataset.observationId = observation.id || '';
+    item.textContent = observation.status === 'rejected'
+      ? `Rejected OCR observation: ${observation.rejectionReason || 'invalid result'}`
+      : `${observation.text} · ${(Number(observation.confidence?.score || 0) * 100).toFixed(1)}% · ${observation.status} · page ${observation.pageId || 'n/a'} / region ${observation.regionId || 'page-crop'}`;
+    return item;
+  }));
+}
+
+async function submitOcrResults(context, observations, crop) {
+  const { run, page, runId, rotation } = context;
+  if (!runId || !page?.sourcePageId || !observations.length) return null;
+  const payload = {
+    sourceDocumentId: run.sourceDocument?.id,
+    sourceDocumentVersion: run.sourceDocument?.version,
+    contentSha256: run.sourceDocument?.contentSha256,
+    processingRunId: run.id,
+    pageId: page.sourcePageId,
+    regionId: null,
+    engine: ocrControllerEngine?.id || ocrController?.engine || 'unknown',
+    engineVersion: ocrControllerEngine?.engineVersion || ocrController?.engineVersion || 'unknown',
+    modelVersion: ocrControllerEngine?.modelVersion || ocrController?.modelVersion || 'unknown',
+    language: ocrControllerEngine?.language || ocrController?.language || 'eng',
+    normalizationVersion: window.BoqOcrNormalize?.NORMALIZATION_VERSION || 'ocr-normalization-v1',
+    coordinateSpace: page.coordinateSpace || 'image',
+    pageTransform: page.transform || page.sourceTransform || null,
+    observations: observations.filter((observation) => observation.status !== 'rejected'),
+    cropPolygon: [{ x: crop.x, y: crop.y }, { x: crop.x + crop.width, y: crop.y }, { x: crop.x + crop.width, y: crop.y + crop.height }, { x: crop.x, y: crop.y + crop.height }],
+    rotation,
+    evidenceOnly: true
+  };
+  const response = await fetch(`/api/runs/${runId}/pages/${page.sourcePageId}/ocr-results`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'OCR evidence could not be saved; the drawing workflow is unchanged.');
+  return result;
+}
+
+async function runOcrOnSelectedCrop() {
+  if (!rasterPage || !rasterRun) return;
+  const controller = ensureOcrController();
+  if (!controller) return;
+  let crop;
+  try { crop = boundedOcrCrop(rasterPage); }
+  catch (error) { renderOcrState({ state: 'failed', error: { message: error.message } }); return; }
+  ocrRunButton.disabled = true;
+  try {
+    const rotation = Number(ocrRotation.value || 0);
+    const context = { run: rasterRun, page: rasterPage, runId: currentRunId, rotation };
+    const image = captureOcrImage(crop, rotation);
+    const dimensions = rasterDimensions(context.page);
+    const observations = await controller.recognize({ image, cropRect: crop, cropWidth: image.width, cropHeight: image.height, pageWidth: dimensions.width, pageHeight: dimensions.height, rotation, nativeText: context.page.nativeText || [], provenance: { sourceDocumentId: context.run.sourceDocument?.id, sourceDocumentVersion: context.run.sourceDocument?.version, processingRunId: context.run.id, pageId: context.page.sourcePageId, regionId: null, coordinateSpace: context.page.coordinateSpace || 'image', pageTransform: context.page.transform || context.page.sourceTransform || null, applyPageTransform: false, crop: crop, pageWidth: dimensions.width, pageHeight: dimensions.height }, pageTransform: context.page.transform || context.page.sourceTransform || null });
+    if (currentRunId !== context.runId || rasterRun?.id !== context.run.id || rasterPage?.sourcePageId !== context.page.sourcePageId) {
+      renderOcrState({ state: 'aborted', error: { message: 'The selected run or page changed; stale OCR evidence was discarded.' } });
+      return;
+    }
+    renderOcrResults(observations);
+    try { await submitOcrResults(context, observations, crop); }
+    catch (error) { ocrStatus.textContent = `OCR recognition completed, but evidence was not saved. ${error.message}`; ocrStatus.dataset.state = 'failed'; }
+  } catch (error) {
+    renderOcrState({ state: controller.state || (error.code === 'offline-missing' ? 'offline-missing' : 'failed'), error: { message: error.message }, progress: controller.progress });
+  } finally { ocrRunButton.disabled = false; }
+}
+
+ocrRunButton?.addEventListener('click', runOcrOnSelectedCrop);
+ocrAbortButton?.addEventListener('click', () => ocrController?.abort());
 
 projectForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -285,6 +461,7 @@ async function pollRun() {
     const isRasterRun = run.setup?.route === 'raster';
     rasterWorkflow.hidden = !isRasterRun;
     if (isRasterRun) renderRasterWorkflow(run);
+    else if (run.sourceDocument?.format === 'pdf') renderPdfOcrWorkflow(run);
     renderBoq(run.boq?.lines || [], run.classifications || []);
     await refreshProject();
     await renderProjectRollup(run);
@@ -293,6 +470,7 @@ async function pollRun() {
   }
   if (run.status === 'awaiting_setup') {
     renderPdfSetup(run);
+    renderPdfOcrWorkflow(run);
     return;
   }
   const rasterWaiting = ['awaiting_calibration', 'awaiting_trace', 'awaiting_confirmation'].includes(run.status) && run.setup?.route === 'raster';
@@ -309,6 +487,7 @@ async function pollRun() {
     return;
   }
   if (run.status === 'failed') {
+    if (run.sourceDocument?.format === 'pdf' && run.pages?.length) renderPdfOcrWorkflow(run);
     message.textContent = run.error;
     message.className = 'error';
     return;
@@ -317,14 +496,19 @@ async function pollRun() {
 }
 
 function renderRasterWorkflow(run) {
+  ocrOnlyPdf = false;
+  rasterWorkflow.classList.remove('ocr-only');
+  rasterWorkflowTitle.textContent = 'Raster calibration and tracing';
+  rasterCanvas.hidden = false;
   const rasterPages = run.pages?.filter((candidate) => candidate.route === 'raster') || [];
-  if (!rasterPages.length) return;
+  if (!rasterPages.length) { if (ocrWorkflow) ocrWorkflow.hidden = true; return; }
   rasterPageSelect.replaceChildren(...rasterPages.map((candidate) => new Option(`Page ${candidate.pageNumber}`, candidate.sourcePageId)));
   if (!rasterSelectedPageId || !rasterPages.some((candidate) => candidate.sourcePageId === rasterSelectedPageId)) rasterSelectedPageId = rasterPages[0].sourcePageId;
   rasterPageSelect.value = rasterSelectedPageId;
   const page = rasterPages.find((candidate) => candidate.sourcePageId === rasterSelectedPageId);
   if (!page) return;
   rasterWorkflow.hidden = false;
+  if (ocrWorkflow) ocrWorkflow.hidden = false;
   const pageChanged = rasterPage?.sourcePageId !== page.sourcePageId || rasterRun?.id !== run.id;
   if (pageChanged) {
     cancelPdfPreview();
@@ -337,6 +521,14 @@ function renderRasterWorkflow(run) {
   rasterRun = run;
   rasterPage = page;
   const dimensions = rasterDimensions(page);
+  if (ocrCropWidth && (ocrCropWidth.value === '' || pageChanged)) {
+    ocrCropX.value = '0'; ocrCropY.value = '0';
+    ocrCropWidth.value = String(Math.min(dimensions.width, 1000));
+    ocrCropHeight.value = String(Math.min(dimensions.height, 1000));
+  }
+  for (const input of [ocrCropX, ocrCropY, ocrCropWidth, ocrCropHeight]) {
+    if (input) { input.max = String(input === ocrCropX || input === ocrCropWidth ? dimensions.width : dimensions.height); }
+  }
   const imageUrl = `/api/runs/${run.id}/pages/${page.sourcePageId}/image`;
   const pdfSource = run.sourceDocument?.format === 'pdf';
   if (pageChanged) rasterRenderError.textContent = '';
@@ -388,7 +580,7 @@ rasterPageSelect.addEventListener('change', () => {
   rasterPoints = [];
   rasterEditRegionId = null;
   rasterEditReplace = false;
-  if (rasterRun) renderRasterWorkflow(rasterRun);
+  if (rasterRun) (ocrOnlyPdf ? renderPdfOcrWorkflow(rasterRun) : renderRasterWorkflow(rasterRun));
 });
 
 rasterCorrectCalibration.addEventListener('click', () => {
@@ -400,7 +592,41 @@ rasterCorrectCalibration.addEventListener('click', () => {
 });
 
 function rasterDimensions(page) {
-  return { width: Number(page.pixelWidth || page.width), height: Number(page.pixelHeight || page.height) };
+  if (Number(page.pixelWidth) > 0 && Number(page.pixelHeight) > 0) return { width: Number(page.pixelWidth), height: Number(page.pixelHeight) };
+  const width = Number(page.width); const height = Number(page.height); const matrix = page.transform || page.sourceTransform;
+  if (Array.isArray(matrix) && matrix.length >= 6 && matrix.every((value) => Number.isFinite(Number(value)))) {
+    const points = [[0, 0], [width, 0], [width, height], [0, height]].map(([x, y]) => ({ x: Number(matrix[0]) * x + Number(matrix[2]) * y + Number(matrix[4]), y: Number(matrix[1]) * x + Number(matrix[3]) * y + Number(matrix[5]) }));
+    return { width: Math.max(...points.map((point) => point.x)) - Math.min(...points.map((point) => point.x)), height: Math.max(...points.map((point) => point.y)) - Math.min(...points.map((point) => point.y)) };
+  }
+  return { width, height };
+}
+
+function renderPdfOcrWorkflow(run) {
+  const pages = run.pages || [];
+  if (!pages.length) return;
+  ocrOnlyPdf = true;
+  rasterWorkflow.classList.add('ocr-only');
+  rasterWorkflowTitle.textContent = 'PDF page preview for optional OCR';
+  rasterWorkflow.hidden = false; ocrWorkflow.hidden = false; rasterCanvas.hidden = true;
+  rasterPageSelect.replaceChildren(...pages.map((candidate) => new Option(`Page ${candidate.pageNumber}`, candidate.sourcePageId)));
+  if (!rasterSelectedPageId || !pages.some((candidate) => candidate.sourcePageId === rasterSelectedPageId)) rasterSelectedPageId = pages[0].sourcePageId;
+  rasterPageSelect.value = rasterSelectedPageId;
+  const page = pages.find((candidate) => candidate.sourcePageId === rasterSelectedPageId);
+  if (!page) return;
+  const pageChanged = rasterPage?.sourcePageId !== page.sourcePageId || rasterRun?.id !== run.id;
+  if (pageChanged) { cancelPdfPreview(); rasterPreview = null; }
+  rasterRun = run; rasterPage = page;
+  const dimensions = rasterDimensions(page);
+  if (pageChanged) {
+    ocrCropX.value = '0'; ocrCropY.value = '0';
+    ocrCropWidth.value = String(Math.min(dimensions.width, 1000)); ocrCropHeight.value = String(Math.min(dimensions.height, 1000));
+  }
+  for (const input of [ocrCropX, ocrCropY, ocrCropWidth, ocrCropHeight]) input.max = String(input === ocrCropX || input === ocrCropWidth ? dimensions.width : dimensions.height);
+  rasterImage.hidden = true; rasterPdfCanvas.hidden = false;
+  const imageUrl = `/api/runs/${run.id}/pages/${page.sourcePageId}/image`;
+  if (rasterImageUrl !== imageUrl || rasterPreview?.pageId !== page.sourcePageId || rasterPreview?.kind !== 'pdf') {
+    rasterImageUrl = imageUrl; void renderPdfRasterPage(run, page, imageUrl);
+  }
 }
 
 function setRasterLayerDimensions(width, height, kind = 'image', cssWidth = null, cssHeight = null) {

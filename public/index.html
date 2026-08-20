@@ -13,7 +13,8 @@
       .stage { border: 1px solid #46505e; padding: .35rem .6rem; text-transform: capitalize; } .completed { border-color: #43b581; color: #70d6a0; }
       .running { border-color: #7ea6ff; color: #a8c2ff; } .failed { border-color: #f27a7a; color: #ffaaaa; }
       table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: .9rem; } th, td { padding: .7rem; text-align: left; border-bottom: 1px solid #323944; vertical-align: top; }
-      th { color: #aeb8c5; } code { font-size: .82em; } .error { color: #ffaaaa; } #raster-preview { position: relative; display: inline-block; max-width: 100%; min-width: 200px; min-height: 100px; overflow: auto; line-height: 0; background: #080a0d; } #raster-image, #raster-pdf-canvas, #raster-canvas { display: block; position: absolute; left: 0; top: 0; } #raster-image, #raster-pdf-canvas { z-index: 1; } #raster-canvas { z-index: 2; cursor: crosshair; } #raster-render-error { min-height: 1.4rem; } .raster-region { padding: .45rem 0; border-bottom: 1px solid #323944; } .raster-region.human-traced { color: #70d6a0; } .raster-region.proposed { color: #80bfff; border-left: 3px dashed #80bfff; padding-left: .5rem; }
+      th { color: #aeb8c5; } code { font-size: .82em; } .error { color: #ffaaaa; } #raster-preview { position: relative; display: inline-block; max-width: 100%; min-width: 200px; min-height: 100px; overflow: auto; line-height: 0; background: #080a0d; } #raster-image, #raster-pdf-canvas, #raster-canvas { display: block; position: absolute; left: 0; top: 0; } #raster-image, #raster-pdf-canvas { z-index: 1; } #raster-canvas { z-index: 2; cursor: crosshair; } #raster-render-error { min-height: 1.4rem; } .raster-region { padding: .45rem 0; border-bottom: 1px solid #323944; } .raster-region.human-traced { color: #70d6a0; } .raster-region.proposed { color: #80bfff; border-left: 3px dashed #80bfff; padding-left: .5rem; } #ocr-workflow { border-color: #536b99; } #ocr-status[data-state="completed"], #ocr-status[data-state="ready"], #ocr-status[data-state="offline-cache-hit"] { color: #70d6a0; } #ocr-status[data-state="unsupported"], #ocr-status[data-state="offline-missing"], #ocr-status[data-state="evicted"], #ocr-status[data-state="failed"], #ocr-status[data-state="aborted"] { color: #ffaaaa; } #ocr-progress { width: min(34rem, 100%); }
+      #raster-workflow.ocr-only #raster-status, #raster-workflow.ocr-only #raster-keyboard-controls, #raster-workflow.ocr-only #raster-render-error, #raster-workflow.ocr-only #raster-calibration-actions, #raster-workflow.ocr-only #raster-category-label, #raster-workflow.ocr-only #raster-close-region, #raster-workflow.ocr-only #raster-regions, #raster-workflow.ocr-only #raster-canvas { display: none; }
     </style>
   </head>
   <body>
@@ -61,7 +62,7 @@
       <p id="message" role="status"></p>
     </section>
     <section id="raster-workflow" hidden>
-      <h2>Raster calibration and tracing</h2>
+      <h2 id="raster-workflow-title">Raster calibration and tracing</h2>
       <p id="raster-status">Select two points on the image for calibration.</p>
       <label>Page <select id="raster-page-select"></select></label>
       <div id="raster-preview"><img id="raster-image" alt="Raster drawing preview" hidden><canvas id="raster-pdf-canvas" aria-label="PDF raster page preview" hidden></canvas><canvas id="raster-canvas" aria-label="Raster calibration and tracing overlay" role="img" tabindex="0" width="200" height="100"></canvas></div>
@@ -74,6 +75,22 @@
       <label id="raster-category-label">Region category <select id="raster-category"><option value="floor_area">Floor area</option><option value="wall_area">Wall area</option></select></label>
       <button id="raster-close-region" type="button" disabled>Close traced region</button>
       <div id="raster-regions" aria-live="polite"></div>
+    </section>
+    <section id="ocr-workflow" hidden>
+      <h2>Optional local OCR</h2>
+      <p>OCR is evidence only. It can annotate text in a bounded raster crop, but it never changes geometry, calibration, quantities, rates, or approval.</p>
+      <p id="ocr-status" role="status" data-state="idle">OCR idle.</p>
+      <progress id="ocr-progress" max="100" value="0" hidden></progress>
+      <div id="ocr-crop-controls">
+        <label>Crop X <input id="ocr-crop-x" type="number" step="any" min="0" value="0"></label>
+        <label>Crop Y <input id="ocr-crop-y" type="number" step="any" min="0" value="0"></label>
+        <label>Crop width <input id="ocr-crop-width" type="number" step="any" min="1" value="200"></label>
+        <label>Crop height <input id="ocr-crop-height" type="number" step="any" min="1" value="100"></label>
+        <label>Rotation <select id="ocr-rotation"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+      </div>
+      <p><button id="ocr-run" type="button">Recognize selected crop</button> <button id="ocr-abort" type="button" hidden>Stop OCR</button></p>
+      <p id="ocr-evidence-note">OCR evidence only — every observation retains page, region, run, engine, model, and crop provenance.</p>
+      <div id="ocr-results" aria-live="polite"></div>
     </section>
     <section id="run" hidden>
       <h2>Processing run</h2>
@@ -104,6 +121,12 @@
         <tbody id="rollup-lines"></tbody>
       </table>
     </section>
+    <script src="/ocr/model-cache.js" defer></script>
+    <script src="/ocr/normalize.js" defer></script>
+    <script src="/ocr/vendor/tesseract.js/dist/tesseract.min.js" defer></script>
+    <script src="/ocr/tesseract.js" defer></script>
+    <script src="/ocr/paddle.js" defer></script>
+    <script src="/ocr/engine.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>
