@@ -59,14 +59,7 @@ survived the integration.
 Evidence fusion is gated on `format === 'dxf'`, so PDF and raster runs cannot pick up
 DXF classification provenance.
 
-## Known gaps (not regressions — never built)
-
-- **No BOQ export surface exists.** No CSV/XLSX/download path anywhere in `src/`.
-  Merge-gate questions about exports are therefore vacuous today, not satisfied.
-- **No rate book, vendor or pricing** in the Node application.
-")
-
-s=s.replace(## Provenance (R2) — implemented
+## Provenance (R2) — implemented
 
 One record for every tier; the tier is a field, not a different structure.
 
@@ -114,7 +107,12 @@ entities (`HATCH`/`LWPOLYLINE`) carry full polygon extents. Block references
 `BLOCKS` section geometry, which the parser does not expand. A viewer can locate
 these objects but cannot fit their true extent.
 
-## Known gaps (not regressions — never built)- **No rule emits a `deduct` contribution.** The record requires and validates `sign`,
+## Known gaps (not regressions — never built)
+
+- **No BOQ export surface exists.** No CSV/XLSX/download path anywhere in `src/`.
+  Merge-gate questions about exports are therefore vacuous today, not satisfied.
+- **No rate book, vendor or pricing** in the Node application.
+- **No rule emits a `deduct` contribution.** The record requires and validates `sign`,
   and `signedSum` subtracts deductions, but no measurement rule in `src/` subtracts
   anything today: door and window openings are counted, never deducted from wall
   areas. Adding a real deduction changes `wall_plaster`/`wall_masonry` quantities, so
