@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict');
+
+const objectFor = (carrier, contribution) => carrier.sourceObjects.find((object) => object.sourceObjectId === contribution.sourceObjectId);
 const { readFileSync } = require('node:fs');
 const { test } = require('node:test');
 const { createApplication } = require('../src/application');
@@ -29,8 +31,10 @@ test('project rollups isolate storey assignments and expose drill-down provenanc
   assert.equal(groundArea.quantity, 27.72);
   assert.equal(firstArea.quantity, 55.44);
   assert.equal(projectArea.quantity, 83.16);
-  assert.equal(firstArea.provenance.sourceContributions[0].storeyId, first.id);
-  assert.equal(firstArea.provenance.sourceContributions[0].typicalMultiplier, 2);
+  const firstRollup = result.buildings[0].storeys.find((storey) => storey.id === first.id).rollup;
+  const firstObject = objectFor(firstRollup, firstArea.provenance.contributions[0]);
+  assert.equal(firstObject.storeyId, first.id);
+  assert.equal(firstArea.provenance.contributions[0].typicalMultiplier, 2);
 });
 
 test('distinct storey assignments remain distinct and reassignment is visible', () => {

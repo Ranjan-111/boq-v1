@@ -2,6 +2,11 @@ const { readFile } = require('node:fs/promises');
 const { createHash } = require('node:crypto');
 const { after, before, test } = require('node:test');
 const assert = require('node:assert/strict');
+
+/* Provenance is a two-part record now: a line carries contributions, and each
+   contribution resolves to a SourceObject in the run's (or rollup's) registry. */
+const objectFor = (carrier, contribution) => carrier.sourceObjects.find((object) => object.sourceObjectId === contribution.sourceObjectId);
+const handlesOf = (carrier, line) => line.provenance.contributions.map((contribution) => objectFor(carrier, contribution).nativeHandle).sort();
 const { startOperatorApp } = require('../test-support/operator-app');
 
 let app;
@@ -95,12 +100,12 @@ test('operator can submit a clean DXF and review deterministic source-backed qua
       furniture_count: 4
     }
   );
-  assert.deepEqual(lines.floor_area.provenance.sourceHandles, ['10A', '10C']);
-  assert.deepEqual(lines.door_count.provenance.sourceHandles, ['10E', '10F']);
+  assert.deepEqual(handlesOf(run.boq, lines.floor_area), ['10A', '10C']);
+  assert.deepEqual(handlesOf(run.boq, lines.door_count), ['10E', '10F']);
   assert.equal(lines.wall_masonry.unit, 'm³');
   assert.equal(lines.wall_masonry.confidence.evidence.join(','), 'layer,hatch');
   assert.equal(lines.floor_area.measurementStatus, 'measured');
-  assert.equal(lines.floor_area.provenance.sourceDocumentId, submission.sourceDocument.id);
+  assert.equal(objectFor(run.boq, lines.floor_area.provenance.contributions[0]).sourceDocumentId, submission.sourceDocument.id);
 });
 
 test('content-sniffed vector PDF preserves bytes and waits for explicit setup', async () => {
@@ -180,16 +185,18 @@ test('vector PDF setup gates measurement and preserves page-region provenance', 
   const run = await completedRun(configured.processingRun.id);
   assert.equal(run.status, 'completed');
   assert.equal(run.boq.lines.find((line) => line.measurement === 'floor_area').quantity, 0.5);
-  const provenance = run.boq.lines[0].provenance.sourceContributions[0];
-  assert.equal(provenance.sourcePageId, 'page_1');
-  assert.deepEqual(provenance.nativeElementIds, ['pdf:p1:path:0001']);
+  const floorLine = run.boq.lines.find((line) => line.measurement === 'floor_area');
+  const provenance = objectFor(run.boq, floorLine.provenance.contributions[0]);
+  assert.equal(provenance.pageId, 'page_1');
+  assert.equal(provenance.regionId, 'pdf:p1:path:0001');
   assert.equal(provenance.geometrySource, 'native-vector');
+  assert.equal(provenance.coordinateSpace, 'pdf-page');
   assert.equal(provenance.rotation, 90);
-  assert.deepEqual(provenance.pageTransform, [0, 1, 1, 0, 0, 0]);
-  assert.equal(provenance.processingRunId, run.id);
-  assert.equal(provenance.setupRevision, 1);
-  assert.equal(provenance.scale.drawingUnitsPerMetre, 72);
-  assert.equal(provenance.rulesetVersion, run.versions.ruleset);
+  assert.deepEqual(provenance.transform, [0, 1, 1, 0, 0, 0]);
+  assert.equal(floorLine.provenance.contributions[0].runId, run.id);
+  assert.equal(floorLine.provenance.contributions[0].ruleInputs.setupRevision, 1);
+  assert.equal(floorLine.provenance.contributions[0].ruleInputs.scale.drawingUnitsPerMetre, 72);
+  assert.equal(floorLine.provenance.contributions[0].rulesetVersion, run.versions.ruleset);
   assert.equal(run.boq.versions.ruleset, run.versions.ruleset);
 });
 
@@ -257,8 +264,9 @@ test('configured vector PDF contributes page provenance to a storey rollup', asy
   const result = (await (await fetch(`${baseUrl}/api/projects/${project.id}`)).json()).project;
   const line = result.buildings[0].storeys[0].rollup.lines.find((candidate) => candidate.measurement === 'floor_area');
   assert.equal(line.quantity, 0.5);
-  assert.equal(line.provenance.sourceContributions[0].sourcePageId, 'page_1');
-  assert.deepEqual(line.provenance.sourceContributions[0].nativeElementIds, ['pdf:p1:path:0001']);
+  const rolledObject = objectFor(result.buildings[0].storeys[0].rollup, line.provenance.contributions[0]);
+  assert.equal(rolledObject.pageId, 'page_1');
+  assert.equal(rolledObject.regionId, 'pdf:p1:path:0001');
 });
 
 test('PDF typical-storey multiplier is applied once and retained in provenance', async () => {
@@ -271,7 +279,7 @@ test('PDF typical-storey multiplier is applied once and retained in provenance',
   const run = await completedRun(configured.processingRun.id);
   const line = run.boq.lines.find((candidate) => candidate.measurement === 'floor_area');
   assert.equal(line.quantity, 1);
-  assert.equal(line.provenance.sourceContributions[0].typicalMultiplier, 2);
+  assert.equal(line.provenance.contributions[0].typicalMultiplier, 2);
 });
 
 test('operator can reprocess the same source and versions without changing quantities', async () => {
@@ -285,9 +293,12 @@ test('operator can reprocess the same source and versions without changing quant
 
   assert.equal(secondRun.sourceDocument.id, firstRun.sourceDocument.id);
   assert.deepEqual(secondRun.versions, firstRun.versions);
+  const shape = (run) => run.boq.lines.map((line) => [line.measurement, line.quantity, handlesOf(run.boq, line)]);
+  assert.deepEqual(shape(secondRun), shape(firstRun));
+  // and the source objects themselves keep their identity, not just their handles
   assert.deepEqual(
-    secondRun.boq.lines.map((line) => [line.measurement, line.quantity, line.provenance.sourceHandles]),
-    firstRun.boq.lines.map((line) => [line.measurement, line.quantity, line.provenance.sourceHandles])
+    secondRun.boq.sourceObjects.map((object) => object.sourceObjectId).sort(),
+    firstRun.boq.sourceObjects.map((object) => object.sourceObjectId).sort()
   );
 });
 
@@ -325,8 +336,10 @@ test('HTTP project workspace returns building/storey rollups with source drill-d
   const result = await (await fetch(`${baseUrl}/api/projects/${project.id}`)).json();
   const floor = result.project.buildings[0].storeys[0].rollup.lines.find((line) => line.measurement === 'floor_area');
   assert.equal(floor.quantity, 55.44);
-  assert.equal(floor.provenance.sourceContributions[0].sourceDocumentId, submission.sourceDocument.id);
-  assert.equal(floor.provenance.sourceContributions[0].storeyId, storey.id);
+  const rollup = result.project.buildings[0].storeys[0].rollup;
+  const floorObject = objectFor(rollup, floor.provenance.contributions[0]);
+  assert.equal(floorObject.sourceDocumentId, submission.sourceDocument.id);
+  assert.equal(floorObject.storeyId, storey.id);
 });
 
 test('HTTP mapping lifecycle applies an approved scoped decision with versioned provenance', async () => {

@@ -6,6 +6,7 @@ const { inspectPdf, PDF_VERSIONS } = require('./ingestion/pdf');
 const { inspectRaster, RASTER_VERSIONS } = require('./ingestion/raster');
 const { LIMITS, LimitError } = require('./ingestion/limits');
 const { OCR_LIMITS, normalizeOcrResults, presentOcrBatch } = require('./ocr-results');
+const { createSourceObject, createContribution, buildProvenance, measurementStatusFor, signedSum, PROVENANCE_VERSION } = require('./provenance');
 
 const VERSIONS = DXF_VERSIONS;
 const PROCESSING_STAGE_DELAY_MS = 150;
@@ -387,7 +388,7 @@ function createApplication({ schedule = setTimeout } = {}) {
           ? (run.setup.route === 'raster' ? measureRaster(document, run) : measurePdf(document, run))
           : ['png', 'jpeg'].includes(document.format)
             ? measureRaster(document, run)
-            : measureDxf(document, run.units, run.parsedDocument, { versions: VERSIONS, typicalMultiplier: run.typicalMultiplier });
+            : measureDxf(document, run.units, run.parsedDocument, { versions: VERSIONS, typicalMultiplier: run.typicalMultiplier, runId: run.id });
         if (document.format === 'dxf') attachClassificationProvenance(run);
         completeStage(run, 'measurement');
         run.status = 'boq';
@@ -602,7 +603,8 @@ function createApplication({ schedule = setTimeout } = {}) {
     if (page.calibration?.status !== 'confirmed') throw new ConflictError('Calibrate the raster page before tracing a region.');
     if (page.regions.filter((region) => region.lifecycle !== 'deleted').length >= LIMITS.rasterRegions) throw new LimitError(`A raster page may contain at most ${LIMITS.rasterRegions} active regions.`, { limitName: 'rasterRegions', observed: page.regions.filter((region) => region.lifecycle !== 'deleted').length + 1, maximum: LIMITS.rasterRegions, stage: 'trace' });
     const points = validatePolygon(input?.points, page);
-    const region = { id: `region_${String(page.regions.length + 1).padStart(4, '0')}`, points, category: normalizeRasterCategory(input?.category), lifecycle: 'traced', geometrySource: 'human-traced', revision: 1, history: [], audit: [{ action: 'created', revision: 1 }] };
+    const origin = input?.origin === 'model-proposed' ? 'model-proposed' : 'human-traced';
+    const region = { id: `region_${String(page.regions.length + 1).padStart(4, '0')}`, points, category: normalizeRasterCategory(input?.category), lifecycle: 'traced', origin, geometrySource: origin === 'model-proposed' ? 'model-proposed-confirmed' : 'human-traced', revision: 1, history: [], audit: [{ action: 'created', revision: 1 }] };
     page.regions.push(region);
     persistRasterRun(run);
     enterRasterGate(run);
@@ -704,6 +706,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     }
     const lines = new Map();
     const contributions = [];
+    const sourceObjects = new Map();
     const unitDecisions = [];
     for (const { sourceDocument, run } of selected.values()) {
       const snapshot = run.assignmentSnapshot;
@@ -722,32 +725,36 @@ function createApplication({ schedule = setTimeout } = {}) {
       };
       contributions.push(contribution);
       unitDecisions.push({ storeyId: snapshot.storeyId, sourceDocumentId: snapshot.sourceDocumentId, decision: run.units });
+      for (const object of run.boq.sourceObjects || []) sourceObjects.set(object.sourceObjectId, object);
       for (const sourceLine of run.boq.lines) {
         const line = lines.get(sourceLine.measurement) || {
           measurement: sourceLine.measurement,
           label: sourceLine.label,
           quantity: 0,
           unit: sourceLine.unit,
-          provenance: { scope, scopeId, sourceContributions: [] }
+          measurementStatus: 'not_measurable',
+          provenance: buildProvenance({ contributions: [], quantity: 0, aggregation: { scope, scopeId } })
         };
         line.quantity = Number((line.quantity + sourceLine.quantity).toFixed(6));
-        const evidence = sourceLine.provenance.sourceContributions || [null];
-        for (const detail of evidence) line.provenance.sourceContributions.push({
-          ...contribution,
-          ...(detail || {}),
-          sourceHandles: sourceLine.provenance.sourceHandles || [],
-          classificationEvidenceIds: sourceLine.provenance.classificationEvidenceIds || [],
-          classificationEvidence: sourceLine.provenance.classificationEvidence || [],
-          classificationConflicts: sourceLine.provenance.classificationConflicts || [],
-          fusionVersion: sourceLine.provenance.fusionVersion || null,
-          mappingSnapshot: sourceLine.provenance.mappingSnapshot || null,
-          runId: run.id,
-          quantity: detail?.quantity ?? sourceLine.quantity
-        });
+        /* The rolled-up line keeps every underlying contribution, so a
+           selection in the viewer still resolves to real source objects
+           across documents, storeys and buildings. */
+        line.provenance.contributions.push(...(sourceLine.provenance.contributions || []));
+        for (const field of ['classificationEvidenceIds', 'classificationConflicts']) {
+          if (sourceLine.provenance[field]?.length) line.provenance[field] = [...new Set([...(line.provenance[field] || []), ...sourceLine.provenance[field]])].sort();
+        }
+        if (sourceLine.provenance.classificationEvidence?.length) {
+          const merged = [...(line.provenance.classificationEvidence || []), ...sourceLine.provenance.classificationEvidence];
+          line.provenance.classificationEvidence = merged.filter((evidence, index, all) => all.findIndex((candidate) => candidate.id === evidence.id) === index);
+        }
+        if (sourceLine.provenance.fusionVersion) line.provenance.fusionVersion = sourceLine.provenance.fusionVersion;
+        if (sourceLine.provenance.mappingSnapshot) line.provenance.mappingSnapshot = sourceLine.provenance.mappingSnapshot;
+        line.measurementStatus = measurementStatusFor(line.quantity, line.provenance.contributions);
+        line.provenance.measurementStatus = line.measurementStatus;
         lines.set(sourceLine.measurement, line);
       }
     }
-    return { scope, scopeId, boqVersionId: requestedBoqVersionId, quantityPolicy: 'latest-document-revision-per-boq-version-and-source-sheet-assignment', lines: [...lines.values()], sourceContributions: contributions, unitDecisions, typicalStoreyMultiplier: 'explicit-only' };
+    return { scope, scopeId, boqVersionId: requestedBoqVersionId, quantityPolicy: 'latest-document-revision-per-boq-version-and-source-sheet-assignment', lines: [...lines.values()], sourceObjects: [...sourceObjects.values()], sourceContributions: contributions, unitDecisions, typicalStoreyMultiplier: 'explicit-only' };
   }
 
   function presentStorey(storey, requestedBoqVersionId = projects.get(storey.projectId).currentBoqVersionId) {
@@ -829,7 +836,12 @@ function mappingEligibleForRun(mapping, sourceDocument) {
 function attachClassificationProvenance(run) {
   const byHandle = new Map((run.classifications || []).map((classification) => [classification.sourceObjectId.split(':').at(-1), classification]));
   for (const line of run.boq?.lines || []) {
-    const classifications = line.provenance.sourceHandles.map((handle) => byHandle.get(handle)).filter(Boolean);
+      const objectsById = new Map((run.boq?.sourceObjects || []).map((object) => [object.sourceObjectId, object]));
+    const classifications = line.provenance.contributions
+      .map((contribution) => objectsById.get(contribution.sourceObjectId)?.nativeHandle)
+      .filter(Boolean)
+      .map((handle) => byHandle.get(handle))
+      .filter(Boolean);
     line.provenance.classificationEvidenceIds = [...new Set(classifications.flatMap((classification) => classification.evidence.map((evidence) => evidence.id)))].sort();
     line.provenance.classificationEvidence = classifications.flatMap((classification) => classification.evidence.map((evidence) => structuredClone(evidence))).filter((evidence, index, all) => all.findIndex((candidate) => candidate.id === evidence.id) === index).sort((a, b) => a.id.localeCompare(b.id));
     line.provenance.classificationConflicts = classifications.flatMap((classification) => classification.conflicts).map((conflict) => conflict.groupKey).filter(Boolean).filter((key, index, keys) => keys.indexOf(key) === index).sort();
@@ -848,6 +860,7 @@ function presentMappingSnapshot(snapshot) {
 
 function measurePdf(sourceDocument, run) {
   const contributions = [];
+  const sourceObjects = new Map();
   let area = 0;
   for (const setupPage of run.setup.pages) {
     const page = run.pages.find((candidate) => candidate.sourcePageId === setupPage.sourcePageId);
@@ -862,42 +875,48 @@ function measurePdf(sourceDocument, run) {
       if (!Number.isFinite(quantity) || quantity <= 0) throw new InputError(`Page ${page.pageNumber} produced a non-finite or zero quantity; choose a practical scale or simplify the source.`);
       area = Number((area + quantity).toFixed(6));
       if (!Number.isFinite(area)) throw new InputError(`Page ${page.pageNumber} produced a non-finite total quantity; choose a practical scale or simplify the source.`);
-      contributions.push({
+      const object = createSourceObject({
         sourceDocumentId: sourceDocument.id,
         sourceDocumentVersion: sourceDocument.version,
-        contentSha256: sourceDocument.contentSha256,
-        sourcePageId: page.sourcePageId,
-        pageNumber: page.pageNumber,
-        nativeElementIds: [region.id],
-        coordinateSpace: page.coordinateSpace,
-        pageTransform: page.transform,
-        rotation: page.rotation,
+        buildingId: sourceDocument.buildingId ?? null,
+        storeyId: sourceDocument.storeyId ?? null,
+        sheetId: sourceDocument.sourceSheet || sourceDocument.filename || null,
+        pageId: page.sourcePageId,
         geometrySource: 'native-vector',
-        parserVersion: run.versions.parser,
-        rulesetVersion: run.versions.ruleset,
-        normalizationVersion: run.versions.normalization,
-        typicalMultiplier: run.typicalMultiplier,
-        processingRunId: run.id,
-        setupRevision: setupPage.revision,
-        scale: { drawingUnitsPerMetre: setupPage.scale.drawingUnitsPerMetre },
-        selectedRegionIds: [...setupPage.selectedRegions],
-        sourceHandles: [],
-        sourceSheet: sourceDocument.sourceSheet,
-        quantity
+        coordinateSpace: 'pdf-page',
+        geometry: region.points,
+        transform: page.transform || null,
+        rotation: page.rotation ?? null,
+        regionId: region.id
       });
+      sourceObjects.set(object.sourceObjectId, object);
+      contributions.push(createContribution({
+        sourceObjectId: object.sourceObjectId,
+        measurement: 'floor_area',
+        sign: 'add',
+        quantity,
+        unit: 'm\u00b2',
+        ruleId: 'pdf-vector-region-area-v1',
+        rulesetVersion: run.versions.ruleset,
+        runId: run.id,
+        typicalMultiplier: run.typicalMultiplier,
+        ruleInputs: { scale: { drawingUnitsPerMetre: setupPage.scale.drawingUnitsPerMetre }, setupRevision: setupPage.revision }
+      }));
     }
   }
   return {
     versions: run.versions,
     ruleset: run.versions.ruleset,
+    sourceObjects: [...sourceObjects.values()],
+    aggregation: { scope: 'source_document', scopeId: sourceDocument.id },
     lines: [{
       measurement: 'floor_area',
       label: 'Floor finish area',
       quantity: area,
-      unit: 'm²',
+      unit: 'm\u00b2',
       confidence: { level: 'HIGH', evidence: ['native vector path', 'operator-selected page region'] },
-      measurementStatus: area > 0 ? 'measured' : 'measured_zero',
-      provenance: { sourceHandles: [], sourceContributions: contributions }
+      measurementStatus: measurementStatusFor(area, contributions),
+      provenance: buildProvenance({ contributions, quantity: area, aggregation: { scope: 'source_document', scopeId: sourceDocument.id } })
     }]
   };
 }
@@ -974,6 +993,7 @@ function presentRasterPage(page) {
 function measureRaster(sourceDocument, run) {
   let area = 0;
   const contributions = [];
+  const sourceObjects = new Map();
   const byCategory = new Map();
   if (!Number.isInteger(run.typicalMultiplier) || run.typicalMultiplier < 1 || run.typicalMultiplier > LIMITS.typicalMultiplierMax) throw new InputError('Raster measurement has an invalid typical-storey multiplier.');
   for (const page of run.pages) {
@@ -999,41 +1019,47 @@ function measureRaster(sourceDocument, run) {
       const categoryArea = Number(((byCategory.get(measurement) || 0) + quantity).toFixed(6));
       if (!Number.isFinite(categoryArea) || categoryArea <= 0) throw new InputError(`Raster category ${measurement} produced a non-finite aggregate area.`);
       byCategory.set(measurement, categoryArea);
-      contributions.push({
+      /* A region traced by a human and a model proposal a human confirmed are
+         both valid evidence, but they are not the same claim, and the
+         difference has to survive as far as an export. */
+      const object = createSourceObject({
         sourceDocumentId: sourceDocument.id,
         sourceDocumentVersion: sourceDocument.version,
-        contentSha256: sourceDocument.contentSha256,
-        processingRunId: run.id,
-        sourcePageId: page.sourcePageId,
-        pageNumber: page.pageNumber,
-        coordinateSpace: 'image',
-        pageTransform: page.sourceTransform || page.transform,
-        rasterTransform: page.rasterTransform,
-        rotation: page.rotation || 0,
-        geometrySource: 'human-traced',
-        nativeElementIds: [],
-        sourceRegionIds: [region.id],
-        calibrationRevision: calibration.revision,
-        calibration: { source: calibration.source, p0: calibration.p0, p1: calibration.p1, pixelDistance: calibration.pixelDistance, realDistance: calibration.realDistance, realUnit: calibration.realUnit, realDistanceMetres: calibration.realDistanceMetres, pixelsPerMetre: calibration.pixelsPerMetre },
-        parserVersion: run.versions.parser,
-        normalizationVersion: run.versions.normalization,
-        rulesetVersion: run.versions.ruleset,
-        evidence: ['operator-confirmed calibration', 'human-traced region'],
-        points: structuredClone(region.points),
-        category: region.category,
-        typicalMultiplier: run.typicalMultiplier,
-        sourceHandles: [],
-        sourceSheet: sourceDocument.sourceSheet,
-        quantity
+        buildingId: sourceDocument.buildingId ?? null,
+        storeyId: sourceDocument.storeyId ?? null,
+        sheetId: sourceDocument.sourceSheet || sourceDocument.filename || null,
+        pageId: page.sourcePageId,
+        geometrySource: region.origin === 'model-proposed' ? 'model-proposed-confirmed' : 'human-traced',
+        coordinateSpace: 'raster-pixel',
+        geometry: region.points,
+        transform: page.sourceTransform || page.transform || null,
+        rotation: page.rotation ?? 0,
+        regionId: region.id
       });
+      sourceObjects.set(object.sourceObjectId, object);
+      contributions.push(createContribution({
+        sourceObjectId: object.sourceObjectId,
+        measurement,
+        sign: 'add',
+        quantity,
+        unit: 'm\u00b2',
+        ruleId: 'raster-traced-region-area-v1',
+        rulesetVersion: run.versions.ruleset,
+        runId: run.id,
+        typicalMultiplier: run.typicalMultiplier,
+        ruleInputs: { calibrationRevision: calibration.revision, pixelsPerMetre: calibration.pixelsPerMetre, realDistance: calibration.realDistance, realUnit: calibration.realUnit, realDistanceMetres: calibration.realDistanceMetres, category: region.category }
+      }));
     }
   }
   const lines = [...byCategory.entries()].map(([measurement, quantity]) => {
     if (!Number.isFinite(quantity) || quantity <= 0) throw new InputError(`Raster category ${measurement} produced an invalid aggregate area.`);
-    return { measurement, label: measurement === 'floor_area' ? 'Floor finish area' : measurement === 'wall_area' ? 'Wall finish area' : measurement, quantity, unit: 'm²', confidence: { level: 'HIGH', evidence: ['operator-confirmed calibration', 'human-traced region'] }, measurementStatus: 'measured', provenance: { sourceHandles: [], sourceContributions: contributions.filter((contribution) => contribution.category === measurement) } };
+    const lineContributions = contributions.filter((contribution) => contribution.measurement === measurement);
+    return { measurement, label: measurement === 'floor_area' ? 'Floor finish area' : measurement === 'wall_area' ? 'Wall finish area' : measurement, quantity, unit: 'm\u00b2', confidence: { level: 'HIGH', evidence: ['operator-confirmed calibration', 'human-traced region'] }, measurementStatus: measurementStatusFor(quantity, lineContributions), provenance: buildProvenance({ contributions: lineContributions, quantity, aggregation: { scope: 'source_document', scopeId: sourceDocument.id } }) };
   });
-  if (!lines.length) lines.push({ measurement: 'floor_area', label: 'Floor finish area', quantity: area, unit: 'm²', confidence: { level: 'HIGH', evidence: ['operator-confirmed calibration', 'human-traced region'] }, measurementStatus: 'measured_zero', provenance: { sourceHandles: [], sourceContributions: [] } });
-  return { versions: run.versions, ruleset: run.versions.ruleset, lines };
+  /* No confirmed region resolved at all. That is not a floor area of zero --
+     nothing was measured -- and the two must never render alike. */
+  if (!lines.length) lines.push({ measurement: 'floor_area', label: 'Floor finish area', quantity: area, unit: 'm\u00b2', confidence: { level: 'HIGH', evidence: ['operator-confirmed calibration', 'human-traced region'] }, measurementStatus: measurementStatusFor(area, []), provenance: buildProvenance({ contributions: [], quantity: area, aggregation: { scope: 'source_document', scopeId: sourceDocument.id } }) });
+  return { versions: run.versions, ruleset: run.versions.ruleset, sourceObjects: [...sourceObjects.values()], aggregation: { scope: 'source_document', scopeId: sourceDocument.id }, lines };
 }
 
 function normalizeRasterCategory(value) {

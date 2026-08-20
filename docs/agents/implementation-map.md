@@ -1,8 +1,9 @@
 # Implementation map
 
-**Baseline commit:** `38bacef` — `merge: cached browser OCR evidence (#9)`
-**Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`.
-**Suite:** 107 tests, all passing together (`npm test`).
+**Baseline commit:** see `git log -1` — the R2 unified provenance record.
+**Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`,
+then replacing the two per-tier provenance shapes with one record (R2).
+**Suite:** 122 tests, all passing together (`npm test`).
 
 ## What `main` now contains
 
@@ -31,7 +32,8 @@ recreated as live work.
 ## Module layout
 
 ```
-src/application.js    lifecycle, run schema, quantity + provenance schema (the conflict zone)
+src/application.js    lifecycle, run schema, PDF + raster measurement
+src/provenance.js     the unified SourceObject / Contribution record (R2)
 src/classification.js evidence fusion, studio mappings, stable digest()
 src/dxf.js            DXF parse, unit resolution, measurement rules
 src/ocr-results.js    OCR normalization, forbidden-field enforcement
@@ -50,7 +52,7 @@ survived the integration.
 
 | Input | Gate before measurement | `geometrySource` | Fusion |
 |---|---|---|---|
-| DXF | unit resolution ( `$INSUNITS` or explicit fallback ) | DXF `sourceHandles` | yes |
+| DXF | unit resolution ( `$INSUNITS` or explicit fallback ) | `dxf-entity` | yes |
 | vector PDF | `awaiting_setup` — page scale + region selection | `native-vector` | no |
 | raster PNG/JPEG | `awaiting_calibration` — two points + real distance, then a traced region | `human-traced` | no |
 
@@ -62,12 +64,61 @@ DXF classification provenance.
 - **No BOQ export surface exists.** No CSV/XLSX/download path anywhere in `src/`.
   Merge-gate questions about exports are therefore vacuous today, not satisfied.
 - **No rate book, vendor or pricing** in the Node application.
-- **Provenance is not unified across tiers.** DXF lines carry `provenance.sourceHandles`;
-  PDF and raster lines carry `provenance.sourceContributions`. Different shapes for the
-  same concept — this is what research question R2 has to settle.
-- **`not_measurable` is DXF-only.** `src/dxf.js` is the only module that emits it; the
-  PDF and raster paths distinguish only `measured` / `measured_zero` and rely on their
-  gates to block missing geometry earlier.
+")
+
+s=s.replace(## Provenance (R2) — implemented
+
+One record for every tier; the tier is a field, not a different structure.
+
+```
+BoqLine.provenance = { version, contributions[], measurementStatus, aggregation }
+Contribution        = { sourceObjectId, measurement, sign, quantity, unit,
+                        ruleId, rulesetVersion, runId, typicalMultiplier, ruleInputs }
+SourceObject        = { sourceObjectId, sourceDocumentId/Version, buildingId, storeyId,
+                        zoneId, sheetId, pageId, geometrySource, coordinateSpace,
+                        geometry, bounds, transform, rotation, nativeHandle, regionId }
+```
+
+Source objects live in a registry on the carrier — `run.boq.sourceObjects` and
+`rollup.sourceObjects` — and contributions reference them by id. `bounds` is
+precomputed at measurement time so a viewer never re-parses the source document.
+
+| Tier | `coordinateSpace` | `geometrySource` |
+|---|---|---|
+| DXF | `dxf` | `dxf-entity` |
+| vector PDF | `pdf-page` | `native-vector` |
+| raster | `raster-pixel` | `human-traced`, or `model-proposed-confirmed` |
+
+`model-proposed` is not a member of the enum: a proposal only becomes provenance
+once a human confirms it, and `createSourceObject` throws on the bare value.
+
+**Two deliberate additions to the R2 spec**, both additive, neither changing a
+quantity: `typicalMultiplier` and `ruleInputs` on `Contribution`. Both are rule
+inputs that scale the result — the storey multiplier, a PDF page scale, a raster
+calibration. Without them a contribution is not reproducible from its own record,
+which defeats the purpose of the record. `rotation` is likewise kept on
+`SourceObject` because page geometry cannot be placed without it.
+
+**Three-state measurement is now uniform.** All three tiers derive status from
+`measurementStatusFor(quantity, contributions)`: no contributions resolved means
+`not_measurable`, contributions summing to zero means `measured_zero`. The DXF tier
+reaches `not_measurable` in normal operation (a plan with no room polygons). PDF and
+raster cannot reach it end to end — their setup gates refuse to enter measurement
+without at least one region, which is the stronger guarantee — so for them it is a
+defensive state covered at the derivation seam.
+
+**Migration losslessness.** Every DXF handle carried over: 0 lost. Wall and room
+entities (`HATCH`/`LWPOLYLINE`) carry full polygon extents. Block references
+(`INSERT` — doors, windows, furniture) carry only their **insertion point**, so their
+`bounds` is a degenerate point box. Resolving a block's real footprint needs the
+`BLOCKS` section geometry, which the parser does not expand. A viewer can locate
+these objects but cannot fit their true extent.
+
+## Known gaps (not regressions — never built)- **No rule emits a `deduct` contribution.** The record requires and validates `sign`,
+  and `signedSum` subtracts deductions, but no measurement rule in `src/` subtracts
+  anything today: door and window openings are counted, never deducted from wall
+  areas. Adding a real deduction changes `wall_plaster`/`wall_masonry` quantities, so
+  it is rule work, not part of this evidence-record refactor.
 - **`vision.js` is prototype-only and browser-keyed.** It calls the model provider
   directly from the page with an operator-pasted key, and nothing in `src/` imports it.
   It cannot ship (research question R4).

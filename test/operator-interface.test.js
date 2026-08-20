@@ -39,7 +39,11 @@ test('operator browser flow uploads a clean DXF and renders its completed BOQ', 
   assert.match(await floorRow.textContent(), /27\.72/);
   assert.match(await floorRow.textContent(), /measured/);
   assert.match(await floorRow.textContent(), /src_0001 v1/);
-  assert.match(await floorRow.textContent(), /10A, 10C/);
+  // provenance-v2 renders one row per contribution, each naming its source object
+  assert.match(await floorRow.textContent(), /10A/);
+  assert.match(await floorRow.textContent(), /10C/);
+  assert.match(await floorRow.textContent(), /dxf-entity in dxf/);
+  assert.match(await floorRow.textContent(), /bounds 0,0,4500,3600/);
 
   await page.getByRole('button', { name: 'Reprocess this source' }).click();
   await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes('run_0002: completed'));

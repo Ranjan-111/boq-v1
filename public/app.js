@@ -462,7 +462,7 @@ async function pollRun() {
     rasterWorkflow.hidden = !isRasterRun;
     if (isRasterRun) renderRasterWorkflow(run);
     else if (run.sourceDocument?.format === 'pdf') renderPdfOcrWorkflow(run);
-    renderBoq(run.boq?.lines || [], run.classifications || []);
+    renderBoq(run.boq || { lines: [], sourceObjects: [] }, run.classifications || []);
     await refreshProject();
     await renderProjectRollup(run);
     reprocess.hidden = false;
@@ -908,15 +908,11 @@ async function renderProjectRollup(run) {
   rollupSummary.textContent = `${project.name} (${project.id}) — BOQ ${project.rollup.boqVersionId || project.currentBoqVersionId}; quantities are drilled down by building, storey, and source provenance.`;
   rollupLines.replaceChildren(...project.rollup.lines.map((line) => {
     const row = document.createElement('tr');
-    const projectQuantity = line.provenance.sourceContributions
-      .filter((contribution) => !contribution.buildingId)
-      .reduce((total, contribution) => total + contribution.quantity, 0);
+    const projectQuantity = signedQuantity(project.rollup, line, (object) => !object.buildingId);
     const projectScope = projectQuantity ? [`Project scope: ${Number(projectQuantity.toFixed(6))} ${line.unit}`] : [];
     const drilldown = [...projectScope, ...project.buildings.flatMap((building) => {
       const buildingLine = building.rollup.lines.find((candidate) => candidate.measurement === line.measurement);
-      const directQuantity = buildingLine?.provenance.sourceContributions
-        .filter((contribution) => !contribution.storeyId)
-        .reduce((total, contribution) => total + contribution.quantity, 0);
+      const directQuantity = buildingLine ? signedQuantity(building.rollup, buildingLine, (object) => !object.storeyId) : 0;
       const direct = directQuantity ? [`${building.name}: ${Number(directQuantity.toFixed(6))} ${buildingLine.unit}`] : [];
       const floors = building.storeys.map((storey) => {
         const storeyLine = storey.rollup.lines.find((candidate) => candidate.measurement === line.measurement);
@@ -924,8 +920,7 @@ async function renderProjectRollup(run) {
       }).filter(Boolean);
       return [...direct, ...floors];
     })].join('\n');
-    const scope = contribution => contribution.storeyId ? `storey ${contribution.storeyId}` : contribution.buildingId ? `building ${contribution.buildingId}` : 'project';
-    const provenance = line.provenance.sourceContributions.map((contribution) => `${contribution.sourceDocumentId} v${contribution.sourceDocumentVersion} (run ${contribution.processingRunId || contribution.runId || 'n/a'}; ${contribution.sourceSheet}; ${scope(contribution)}; page ${contribution.sourcePageId || 'n/a'}; regions ${(contribution.selectedRegionIds || contribution.nativeElementIds || []).join(', ') || 'n/a'}; scale ${contribution.scale?.drawingUnitsPerMetre || 'n/a'}; setup revision ${contribution.setupRevision || 'n/a'}; transform ${(contribution.pageTransform || []).join(',') || 'n/a'}; typical-storey multiplier: ×${contribution.typicalMultiplier}) handles: ${contribution.sourceHandles.join(', ')}`).join('\n');
+    const provenance = describeContributions(project.rollup, line).join('\n');
     for (const value of [line.label, String(line.quantity), drilldown, provenance]) {
       const cell = document.createElement('td');
       cell.textContent = value;
@@ -957,7 +952,28 @@ function renderRun(run) {
   ]);
 }
 
-function renderBoq(lines, classifications = []) {
+/* Provenance is a two-part record: a line carries contributions, each of which
+   resolves to a SourceObject in its carrier's registry (a run's boq, or a
+   rollup). Deductions subtract, so a displayed total matches the line. */
+function sourceObjectFor(carrier, contribution) {
+  return (carrier?.sourceObjects || []).find((object) => object.sourceObjectId === contribution.sourceObjectId) || {};
+}
+function signedQuantity(carrier, line, predicate = () => true) {
+  return (line.provenance.contributions || [])
+    .filter((contribution) => predicate(sourceObjectFor(carrier, contribution)))
+    .reduce((total, contribution) => total + (contribution.sign === 'deduct' ? -contribution.quantity : contribution.quantity), 0);
+}
+function describeContributions(carrier, line) {
+  return (line.provenance.contributions || []).map((contribution) => {
+    const object = sourceObjectFor(carrier, contribution);
+    const scope = object.storeyId ? `storey ${object.storeyId}` : object.buildingId ? `building ${object.buildingId}` : 'project';
+    const where = object.nativeHandle || object.regionId || 'n/a';
+    const scale = contribution.ruleInputs?.scale?.drawingUnitsPerMetre ?? contribution.ruleInputs?.pixelsPerMetre ?? 'n/a';
+    return `${object.sourceDocumentId} v${object.sourceDocumentVersion} (run ${contribution.runId}; ${object.sheetId || 'n/a'}; ${scope}; page ${object.pageId || 'n/a'}; ${where}; ${contribution.sign} ${contribution.quantity} ${contribution.unit}; ${object.geometrySource} in ${object.coordinateSpace}; bounds ${(object.bounds || []).join(',') || 'n/a'}; scale ${scale}; rule ${contribution.ruleId}@${contribution.rulesetVersion}; typical-storey multiplier: \u00d7${contribution.typicalMultiplier})`;
+  });
+}
+
+function renderBoq(boq, classifications = []) {
   classificationReview.replaceChildren();
   const conflicts = classifications.flatMap((classification) => classification.conflicts || []).filter((conflict, index, all) => all.findIndex((candidate) => candidate.groupKey === conflict.groupKey) === index);
   if (classifications.length) {
@@ -984,14 +1000,13 @@ function renderBoq(lines, classifications = []) {
     alert.textContent = `Grouped classification conflict (${conflict.groupKey}): ${conflict.candidateValues.join(' vs ')} — exact item remains unresolved.`;
     classificationReview.append(alert);
   }
-  boqLines.replaceChildren(...lines.map((line) => {
+  boqLines.replaceChildren(...(boq.lines || []).map((line) => {
     const row = document.createElement('tr');
-    const contributions = line.provenance.sourceContributions || [];
-    const firstContribution = contributions[0] || {};
-    const sourceId = line.provenance.sourceDocumentId || firstContribution.sourceDocumentId || '';
-    const sourceVersion = line.provenance.sourceDocumentVersion || firstContribution.sourceDocumentVersion || '';
-    const nativeEvidence = contributions.map((contribution) => `${contribution.sourcePageId || ''} ${(contribution.sourceRegionIds || contribution.nativeElementIds || []).join(', ')} run ${contribution.processingRunId || contribution.runId || 'n/a'} geometry ${contribution.geometrySource || 'native'} scale ${contribution.scale?.drawingUnitsPerMetre || 'n/a'} transform ${(contribution.pageTransform || []).join(',') || 'n/a'}`.trim()).filter(Boolean).join('\n');
-    const provenance = `${sourceId} v${sourceVersion}\n${line.provenance.sourceHandles.join(', ')}${nativeEvidence ? `\n${nativeEvidence}` : ''}`;
+    const first = sourceObjectFor(boq, line.provenance.contributions?.[0] || {});
+    const header = line.provenance.contributions?.length
+      ? `${first.sourceDocumentId} v${first.sourceDocumentVersion}`
+      : 'no source object resolved';
+    const provenance = [header, ...describeContributions(boq, line)].join('\n');
     for (const value of [
       line.label,
       String(line.quantity),

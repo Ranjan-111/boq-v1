@@ -1,5 +1,7 @@
 const { after, before, test } = require('node:test');
 const assert = require('node:assert/strict');
+
+const objectFor = (carrier, contribution) => carrier.sourceObjects.find((object) => object.sourceObjectId === contribution.sourceObjectId);
 const { readFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { startOperatorApp } = require('../test-support/operator-app');
@@ -83,10 +85,13 @@ test('PNG raster flow calibrates, traces, confirms, measures, and exposes human 
   const completed = await waitRun(confirmed.processingRun.id);
   assert.equal(completed.status, 'completed');
   assert.equal(completed.boq.lines.find((line) => line.measurement === 'floor_area').quantity, 2);
-  const evidence = completed.boq.lines[0].provenance.sourceContributions[0];
+  const floorLine = completed.boq.lines.find((line) => line.measurement === 'floor_area');
+  const contribution = floorLine.provenance.contributions[0];
+  const evidence = objectFor(completed.boq, contribution);
   assert.equal(evidence.geometrySource, 'human-traced');
-  assert.deepEqual(evidence.sourceRegionIds, [regionId]);
-  assert.equal(evidence.calibrationRevision, 1);
+  assert.equal(evidence.coordinateSpace, 'raster-pixel');
+  assert.equal(evidence.regionId, regionId);
+  assert.equal(contribution.ruleInputs.calibrationRevision, 1);
 });
 
 test('raster calibration correction recomputes from canonical points and preserves region history', async () => {
@@ -187,8 +192,9 @@ test('raster categories group quantities and reprocess retains calibration/trace
   const lines = Object.fromEntries(completed.boq.lines.map((line) => [line.measurement, line]));
   assert.equal(lines.floor_area.quantity, 2);
   assert.equal(lines.wall_area.quantity, 0.4);
-  assert.equal(lines.wall_area.provenance.sourceContributions[0].geometrySource, 'human-traced');
-  assert.deepEqual(lines.wall_area.provenance.sourceContributions[0].sourceRegionIds, [wall.region.id]);
+  const wallObject = objectFor(completed.boq, lines.wall_area.provenance.contributions[0]);
+  assert.equal(wallObject.geometrySource, 'human-traced');
+  assert.equal(wallObject.regionId, wall.region.id);
   const replay = await (await fetch(`${baseUrl}/api/runs/${completed.id}/reprocess`, { method: 'POST' })).json();
   const replayed = await waitRun(replay.processingRun.id);
   assert.equal(replayed.status, 'completed');

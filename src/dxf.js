@@ -1,3 +1,5 @@
+const { createSourceObject, createContribution, buildProvenance, measurementStatusFor } = require('./provenance');
+
 const EXTERNAL_REFERENCE_ENTITY_TYPES = Object.freeze(['XREF', 'IMAGE', 'PDFUNDERLAY', 'DGNUNDERLAY']);
 const EXTERNAL_REFERENCE_BLOCK_FLAGS = 4 | 8;
 const VALIDATED_ENTITY_TYPES = Object.freeze(['HATCH', 'LWPOLYLINE', 'INSERT', 'LINE']);
@@ -22,13 +24,15 @@ function inspectDxf(sourceDocument, { versions = DXF_VERSIONS } = {}) {
   return { document, units: resolveUnits(document, sourceDocument, versions.unitResolution), versions };
 }
 
-/** Measure one normalized document; all source handles remain attached. */
-function measureDxf(sourceDocument, units, parsedDocument, { versions = DXF_VERSIONS, typicalMultiplier = 1 } = {}) {
+/** Measure one normalized document, emitting a unified provenance record.
+    Quantities are computed exactly as before; the evidence record around them
+    is what changed. */
+function measureDxf(sourceDocument, units, parsedDocument, { versions = DXF_VERSIONS, typicalMultiplier = 1, runId = null } = {}) {
   const document = parsedDocument || parseDxf(sourceDocument.content);
   const toMetres = units.toMetres;
-  const wallHandles = [];
-  const roomHandles = [];
-  const handlesByCategory = { door: [], window: [], furniture: [] };
+  const walls = [];
+  const rooms = [];
+  const byCategory = { door: [], window: [], furniture: [] };
   let wallArea = 0;
   let floorArea = 0;
   let roomPerimeter = 0;
@@ -36,40 +40,74 @@ function measureDxf(sourceDocument, units, parsedDocument, { versions = DXF_VERS
     const category = layerCategory(entity.layer) || blockCategory(entity.block);
     if (entity.type === 'HATCH' && category === 'wall' && entity.points.length >= 3) {
       wallArea += polygonArea(entity.points);
-      wallHandles.push(entity.handle);
+      walls.push(entity);
     }
     if (entity.type === 'LWPOLYLINE' && category === 'room' && entity.points.length >= 3) {
       floorArea += polygonArea(entity.points);
       roomPerimeter += polygonPerimeter(entity.points);
-      roomHandles.push(entity.handle);
+      rooms.push(entity);
     }
-    if (entity.type === 'INSERT' && category && handlesByCategory[category]) handlesByCategory[category].push(entity.handle);
+    if (entity.type === 'INSERT' && category && byCategory[category]) byCategory[category].push(entity);
   }
   const wallPlan = quantity(wallArea * toMetres * toMetres * typicalMultiplier);
   const floor = quantity(floorArea * toMetres * toMetres * typicalMultiplier);
   const wallHeight = 3;
   const wallThickness = 0.23;
   const wallCentreLength = wallPlan / wallThickness;
-  const source = {
-    sourceDocumentId: sourceDocument.id,
-    sourceDocumentVersion: sourceDocument.version,
-    sourceSheet: sourceDocument.sourceSheet || sourceDocument.filename,
-    typicalMultiplier
+
+  const sourceObjects = new Map();
+  const register = (entity) => {
+    const object = createSourceObject({
+      sourceDocumentId: sourceDocument.id,
+      sourceDocumentVersion: sourceDocument.version,
+      buildingId: sourceDocument.buildingId ?? null,
+      storeyId: sourceDocument.storeyId ?? null,
+      sheetId: sourceDocument.sourceSheet || sourceDocument.filename || null,
+      geometrySource: 'dxf-entity',
+      coordinateSpace: 'dxf',
+      geometry: entity.points,
+      nativeHandle: entity.handle
+    });
+    sourceObjects.set(object.sourceObjectId, object);
+    return object;
   };
+  /* One contribution per entity, so a line decomposes back to the objects that
+     produced it. `share` maps an entity to its slice of the line quantity. */
+  const contribute = (entities, measurement, unit, ruleId, share) => entities.map((entity) => createContribution({
+    sourceObjectId: register(entity).sourceObjectId,
+    measurement, sign: 'add', quantity: share(entity), unit,
+    ruleId, rulesetVersion: versions.ruleset, runId, typicalMultiplier
+  }));
+
+  const areaOf = (entity) => polygonArea(entity.points) * toMetres * toMetres * typicalMultiplier;
+  const plasterOf = (entity) => (areaOf(entity) / wallThickness) * 2 * wallHeight;
+
+  const lines = [
+    line('wall_plan', 'Wall footprint (plan)', wallPlan, 'm²', ['layer', 'hatch'],
+      contribute(walls, 'wall_plan', 'm²', 'dxf-wall-plan-v1', areaOf)),
+    line('wall_masonry', 'Wall masonry volume', quantity(wallPlan * wallHeight), 'm³', ['layer', 'hatch'],
+      contribute(walls, 'wall_masonry', 'm³', 'dxf-wall-masonry-v1', (entity) => areaOf(entity) * wallHeight)),
+    line('wall_plaster', 'Wall plaster (both faces)', quantity(wallCentreLength * 2 * wallHeight), 'm²', ['layer', 'hatch'],
+      contribute(walls, 'wall_plaster', 'm²', 'dxf-wall-plaster-v1', plasterOf)),
+    line('floor_area', 'Floor finish area', floor, 'm²', ['layer', 'geometry'],
+      contribute(rooms, 'floor_area', 'm²', 'dxf-floor-area-v1', areaOf)),
+    line('skirting', 'Skirting length', quantity(roomPerimeter * toMetres * typicalMultiplier), 'm', ['layer', 'geometry'],
+      contribute(rooms, 'skirting', 'm', 'dxf-skirting-v1', (entity) => polygonPerimeter(entity.points) * toMetres * typicalMultiplier)),
+    line('room_count', 'Room count', rooms.length * typicalMultiplier, 'nos', ['layer', 'geometry'],
+      contribute(rooms, 'room_count', 'nos', 'dxf-room-count-v1', () => typicalMultiplier)),
+    line('door_count', 'Doors', byCategory.door.length * typicalMultiplier, 'nos', ['layer', 'block'],
+      contribute(byCategory.door, 'door_count', 'nos', 'dxf-door-count-v1', () => typicalMultiplier)),
+    line('window_count', 'Windows', byCategory.window.length * typicalMultiplier, 'nos', ['layer', 'block'],
+      contribute(byCategory.window, 'window_count', 'nos', 'dxf-window-count-v1', () => typicalMultiplier)),
+    line('furniture_count', 'Furniture items', byCategory.furniture.length * typicalMultiplier, 'nos', ['layer', 'block'],
+      contribute(byCategory.furniture, 'furniture_count', 'nos', 'dxf-furniture-count-v1', () => typicalMultiplier))
+  ];
   return {
     versions,
     ruleset: versions.ruleset,
-    lines: [
-      line('wall_plan', 'Wall footprint (plan)', wallPlan, 'm²', wallHandles, ['layer', 'hatch'], source),
-      line('wall_masonry', 'Wall masonry volume', quantity(wallPlan * wallHeight), 'm³', wallHandles, ['layer', 'hatch'], source),
-      line('wall_plaster', 'Wall plaster (both faces)', quantity(wallCentreLength * 2 * wallHeight), 'm²', wallHandles, ['layer', 'hatch'], source),
-      line('floor_area', 'Floor finish area', floor, 'm²', roomHandles, ['layer', 'geometry'], source),
-      line('skirting', 'Skirting length', quantity(roomPerimeter * toMetres * typicalMultiplier), 'm', roomHandles, ['layer', 'geometry'], source),
-      line('room_count', 'Room count', roomHandles.length * typicalMultiplier, 'nos', roomHandles, ['layer', 'geometry'], source),
-      line('door_count', 'Doors', handlesByCategory.door.length * typicalMultiplier, 'nos', handlesByCategory.door, ['layer', 'block'], source),
-      line('window_count', 'Windows', handlesByCategory.window.length * typicalMultiplier, 'nos', handlesByCategory.window, ['layer', 'block'], source),
-      line('furniture_count', 'Furniture items', handlesByCategory.furniture.length * typicalMultiplier, 'nos', handlesByCategory.furniture, ['layer', 'block'], source)
-    ]
+    sourceObjects: [...sourceObjects.values()],
+    aggregation: { scope: 'source_document', scopeId: sourceDocument.id },
+    lines
   };
 }
 
@@ -184,6 +222,14 @@ function readEntity(type, groups) {
     }
     if (x !== null || entity.points.length < 3) throw malformedEntityError(type, entity.handle);
   }
+  if (type === 'INSERT') {
+    /* An INSERT carries its insertion point at codes 10/20. The block's real
+       extent needs the BLOCKS definition, which this parser does not resolve,
+       so provenance gets a point rather than a footprint. */
+    const x = Number(group(10));
+    const y = Number(group(20));
+    if (Number.isFinite(x) && Number.isFinite(y) && group(10) !== '' && group(20) !== '') entity.points.push([x, y]);
+  }
   if (['HATCH', 'LWPOLYLINE', 'INSERT'].includes(type) && (!entity.handle || !entity.layer)) throw malformedEntityError(type, entity.handle);
   if (type === 'INSERT' && !entity.block) throw malformedEntityError(type, entity.handle, 'its block reference is missing');
   if (type === 'INSERT' && /XREF|EXTERNAL|REFERENCE/i.test(entity.block)) throw externalReferenceError(entity.block);
@@ -209,8 +255,13 @@ function blockCategory(block = '') {
 function polygonArea(points) { return Math.abs(points.reduce((area, point, index) => { const next = points[(index + 1) % points.length]; return area + point[0] * next[1] - next[0] * point[1]; }, 0) / 2); }
 function polygonPerimeter(points) { return points.reduce((perimeter, point, index) => { const next = points[(index + 1) % points.length]; return perimeter + Math.hypot(next[0] - point[0], next[1] - point[1]); }, 0); }
 function quantity(value) { return Number(value.toFixed(6)); }
-function line(measurement, label, value, unit, sourceHandles, evidence, source) {
-  return { measurement, label, quantity: value, unit, confidence: { level: evidence.length === 2 ? 'HIGH' : 'MEDIUM', evidence }, measurementStatus: value > 0 ? 'measured' : (sourceHandles.length ? 'measured_zero' : 'not_measurable'), provenance: { ...source, sourceHandles } };
+function line(measurement, label, value, unit, evidence, contributions) {
+  return {
+    measurement, label, quantity: value, unit,
+    confidence: { level: evidence.length === 2 ? 'HIGH' : 'MEDIUM', evidence },
+    measurementStatus: measurementStatusFor(value, contributions),
+    provenance: buildProvenance({ contributions, quantity: value })
+  };
 }
 function sourceInputError(sourceDocument, detail) { return new InputError(`${detail} Affected source: ${sourceDocument.filename} (${sourceDocument.id}, v${sourceDocument.version}).`); }
 function externalReferenceError(reference) { return new InputError(`The DXF contains a missing external reference${reference ? ` (${reference})` : ''}; re-export the affected drawing with external references bound or embedded.`); }
