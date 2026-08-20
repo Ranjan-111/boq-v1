@@ -100,16 +100,20 @@ async function inspectPdfInternal(content, sourceDocument, { limits = LIMITS } =
       const viewport = page.getViewport({ scale: 1, rotation });
       const pageText = await readTextContent(page, deadline, limits, destroy, limits.pdfTextItems - textItems, pageNumber);
       textItems += pageText.length;
-      const nativeText = pageText.map((item, index) => ({
-        id: `pdf:p${pageNumber}:text:${String(index + 1).padStart(4, '0')}`,
-        text: item.str,
-        transform: multiply(viewport.transform, item.transform),
-        rawTransform: item.transform,
-        width: item.width,
-        height: item.height,
-        geometrySource: 'native-pdf',
-        coordinateSpace: 'pdf'
-      }));
+      const nativeText = pageText.map((item, index) => {
+        const transform = multiply(viewport.transform, item.transform);
+        return {
+          id: `pdf:p${pageNumber}:text:${String(index + 1).padStart(4, '0')}`,
+          text: item.str,
+          transform,
+          rawTransform: item.transform,
+          width: item.width,
+          height: item.height,
+          textPolygon: textPolygon(transform, item.width, item.height),
+          geometrySource: 'native-pdf',
+          coordinateSpace: 'pdf'
+        };
+      });
       const operatorList = await awaitDeadline(page.getOperatorList(pdf.AnnotationMode ? { annotationMode: pdf.AnnotationMode.DISABLE } : undefined), deadline, limits, `reading PDF geometry on page ${pageNumber}`, destroy, currentSourcePageId);
       operators += operatorList.fnArray.length;
       if (operators > limits.pdfOperators) throw new LimitError(`PDF contains more than ${limits.pdfOperators} drawing operators; simplify or split the source.`, { limitName: 'pdfOperators', observed: operators, maximum: limits.pdfOperators, sourcePageId: pageId(pageNumber) });
@@ -366,6 +370,19 @@ function multiply(left, right) {
 }
 
 function multiplyPoint(matrix, x, y) { return [matrix[0] * x + matrix[2] * y + matrix[4], matrix[1] * x + matrix[3] * y + matrix[5]]; }
+
+function textPolygon(transform, width, height) {
+  if (!Array.isArray(transform) || transform.length < 6) return null;
+  const baselineLength = Math.hypot(transform[0], transform[1]);
+  const verticalLength = Math.hypot(transform[2], transform[3]);
+  const textWidth = Number(width); const textHeight = Number(height);
+  if (![baselineLength, verticalLength, textWidth, textHeight].every(Number.isFinite) || baselineLength <= 0 || verticalLength <= 0 || textWidth <= 0 || textHeight <= 0) return null;
+  const origin = [transform[4], transform[5]];
+  const baseline = [transform[0] / baselineLength * textWidth, transform[1] / baselineLength * textWidth];
+  const vertical = [transform[2] / verticalLength * textHeight, transform[3] / verticalLength * textHeight];
+  const add = (left, right) => [left[0] + right[0], left[1] + right[1]];
+  return [origin, add(origin, baseline), add(add(origin, baseline), vertical), add(origin, vertical)];
+}
 
 function polygonArea(points) {
   return Math.abs(points.reduce((area, point, index) => {

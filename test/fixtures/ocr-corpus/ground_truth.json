@@ -1,0 +1,2262 @@
+{
+  "schemaVersion": "ocr-ground-truth-v1",
+  "generationVersion": "ocr-corpus-v1",
+  "assets": {
+    "title-storey": {
+      "width": 1800,
+      "height": 1000,
+      "rotation": 0,
+      "records": [
+        {
+          "id": "title",
+          "text": "DRAWING TO BOQ",
+          "role": "title",
+          "polygon": [
+            [
+              120,
+              40
+            ],
+            [
+              840,
+              40
+            ],
+            [
+              840,
+              130
+            ],
+            [
+              120,
+              130
+            ]
+          ],
+          "tokens": [
+            "DRAWING",
+            "TO",
+            "BOQ"
+          ]
+        },
+        {
+          "id": "project",
+          "text": "PROJECT: KORAMANGALA RESIDENCE",
+          "role": "project",
+          "polygon": [
+            [
+              120,
+              204
+            ],
+            [
+              780,
+              204
+            ],
+            [
+              780,
+              260
+            ],
+            [
+              120,
+              260
+            ]
+          ],
+          "tokens": [
+            "PROJECT",
+            "KORAMANGALA",
+            "RESIDENCE"
+          ]
+        },
+        {
+          "id": "storey",
+          "text": "STOREY: GROUND FLOOR",
+          "role": "storey",
+          "polygon": [
+            [
+              120,
+              307
+            ],
+            [
+              680,
+              307
+            ],
+            [
+              680,
+              365
+            ],
+            [
+              120,
+              365
+            ]
+          ],
+          "tokens": [
+            "STOREY",
+            "GROUND",
+            "FLOOR"
+          ]
+        },
+        {
+          "id": "sheet",
+          "text": "SHEET: A-101",
+          "role": "sheet",
+          "polygon": [
+            [
+              120,
+              418
+            ],
+            [
+              420,
+              418
+            ],
+            [
+              420,
+              470
+            ],
+            [
+              120,
+              470
+            ]
+          ],
+          "tokens": [
+            "SHEET",
+            "A",
+            "101"
+          ]
+        },
+        {
+          "id": "scale",
+          "text": "SCALE 1:50",
+          "role": "scale",
+          "polygon": [
+            [
+              120,
+              523
+            ],
+            [
+              380,
+              523
+            ],
+            [
+              380,
+              575
+            ],
+            [
+              120,
+              575
+            ]
+          ],
+          "tokens": [
+            "SCALE",
+            "1",
+            "50"
+          ]
+        },
+        {
+          "id": "note",
+          "text": "NOTES: VERIFY ON SITE",
+          "role": "note",
+          "polygon": [
+            [
+              120,
+              752
+            ],
+            [
+              620,
+              752
+            ],
+            [
+              620,
+              800
+            ],
+            [
+              120,
+              800
+            ]
+          ],
+          "tokens": [
+            "NOTES",
+            "VERIFY",
+            "ON",
+            "SITE"
+          ]
+        }
+      ]
+    },
+    "numeric-units": {
+      "width": 1800,
+      "height": 1100,
+      "rotation": 0,
+      "records": [
+        {
+          "id": "dim-4500",
+          "text": "4500 mm",
+          "role": "dimension",
+          "polygon": [
+            [
+              120,
+              80
+            ],
+            [
+              390,
+              80
+            ],
+            [
+              390,
+              150
+            ],
+            [
+              120,
+              150
+            ]
+          ],
+          "tokens": [
+            "4500",
+            "MM"
+          ]
+        },
+        {
+          "id": "dim-325",
+          "text": "3.25 m",
+          "role": "decimal",
+          "polygon": [
+            [
+              120,
+              220
+            ],
+            [
+              330,
+              220
+            ],
+            [
+              330,
+              290
+            ],
+            [
+              120,
+              290
+            ]
+          ],
+          "tokens": [
+            "3.25",
+            "M"
+          ]
+        },
+        {
+          "id": "dim-120",
+          "text": "1.20 m",
+          "role": "decimal",
+          "polygon": [
+            [
+              120,
+              360
+            ],
+            [
+              330,
+              360
+            ],
+            [
+              330,
+              430
+            ],
+            [
+              120,
+              430
+            ]
+          ],
+          "tokens": [
+            "1.20",
+            "M"
+          ]
+        },
+        {
+          "id": "dim-075",
+          "text": "0.75 m",
+          "role": "decimal",
+          "polygon": [
+            [
+              120,
+              500
+            ],
+            [
+              330,
+              500
+            ],
+            [
+              330,
+              570
+            ],
+            [
+              120,
+              570
+            ]
+          ],
+          "tokens": [
+            "0.75",
+            "M"
+          ]
+        },
+        {
+          "id": "unit",
+          "text": "UNITS: MILLIMETRES",
+          "role": "unit",
+          "polygon": [
+            [
+              850,
+              92
+            ],
+            [
+              1300,
+              92
+            ],
+            [
+              1300,
+              150
+            ],
+            [
+              850,
+              150
+            ]
+          ],
+          "tokens": [
+            "UNITS",
+            "MILLIMETRES"
+          ]
+        },
+        {
+          "id": "level",
+          "text": "LEVEL +3.60 m",
+          "role": "level",
+          "polygon": [
+            [
+              850,
+              226
+            ],
+            [
+              1240,
+              226
+            ],
+            [
+              1240,
+              290
+            ],
+            [
+              850,
+              290
+            ]
+          ],
+          "tokens": [
+            "LEVEL",
+            "3.60",
+            "M"
+          ]
+        },
+        {
+          "id": "wall",
+          "text": "WALL THICKNESS 230 mm",
+          "role": "dimension",
+          "polygon": [
+            [
+              850,
+              372
+            ],
+            [
+              1400,
+              372
+            ],
+            [
+              1400,
+              430
+            ],
+            [
+              850,
+              430
+            ]
+          ],
+          "tokens": [
+            "WALL",
+            "THICKNESS",
+            "230",
+            "MM"
+          ]
+        },
+        {
+          "id": "suspicious",
+          "text": "CHECK DIMENSION 999.99 mm",
+          "role": "suspicious-dimension",
+          "polygon": [
+            [
+              850,
+              518
+            ],
+            [
+              1450,
+              518
+            ],
+            [
+              1450,
+              570
+            ],
+            [
+              850,
+              570
+            ]
+          ],
+          "tokens": [
+            "CHECK",
+            "DIMENSION",
+            "999.99",
+            "MM"
+          ]
+        }
+      ]
+    },
+    "rotated-0": {
+      "width": 1200,
+      "height": 800,
+      "rotation": 0,
+      "records": [
+        {
+          "id": "rot-storey",
+          "text": "STOREY 02",
+          "role": "storey",
+          "polygon": [
+            [
+              180,
+              254
+            ],
+            [
+              510,
+              254
+            ],
+            [
+              510,
+              330
+            ],
+            [
+              180,
+              330
+            ]
+          ],
+          "tokens": [
+            "STOREY",
+            "02"
+          ]
+        },
+        {
+          "id": "rot-dim",
+          "text": "2.75 m",
+          "role": "decimal",
+          "polygon": [
+            [
+              180,
+              364
+            ],
+            [
+              440,
+              364
+            ],
+            [
+              440,
+              440
+            ],
+            [
+              180,
+              440
+            ]
+          ],
+          "tokens": [
+            "2.75",
+            "M"
+          ]
+        },
+        {
+          "id": "rot-north",
+          "text": "NORTH",
+          "role": "orientation",
+          "polygon": [
+            [
+              180,
+              474
+            ],
+            [
+              400,
+              474
+            ],
+            [
+              400,
+              550
+            ],
+            [
+              180,
+              550
+            ]
+          ],
+          "tokens": [
+            "NORTH"
+          ]
+        }
+      ]
+    },
+    "rotated-90": {
+      "width": 1200,
+      "height": 800,
+      "rotation": 90,
+      "records": [
+        {
+          "id": "rot-storey",
+          "text": "STOREY 02",
+          "role": "storey",
+          "polygon": [
+            [
+              746,
+              -20
+            ],
+            [
+              746,
+              310
+            ],
+            [
+              670,
+              310
+            ],
+            [
+              670,
+              -20
+            ]
+          ],
+          "tokens": [
+            "STOREY",
+            "02"
+          ]
+        },
+        {
+          "id": "rot-dim",
+          "text": "2.75 m",
+          "role": "decimal",
+          "polygon": [
+            [
+              636,
+              -20
+            ],
+            [
+              636,
+              240
+            ],
+            [
+              560,
+              240
+            ],
+            [
+              560,
+              -20
+            ]
+          ],
+          "tokens": [
+            "2.75",
+            "M"
+          ]
+        },
+        {
+          "id": "rot-north",
+          "text": "NORTH",
+          "role": "orientation",
+          "polygon": [
+            [
+              526,
+              -20
+            ],
+            [
+              526,
+              200
+            ],
+            [
+              450,
+              200
+            ],
+            [
+              450,
+              -20
+            ]
+          ],
+          "tokens": [
+            "NORTH"
+          ]
+        }
+      ]
+    },
+    "rotated-180": {
+      "width": 1200,
+      "height": 800,
+      "rotation": 180,
+      "records": [
+        {
+          "id": "rot-storey",
+          "text": "STOREY 02",
+          "role": "storey",
+          "polygon": [
+            [
+              1020,
+              546
+            ],
+            [
+              690,
+              546
+            ],
+            [
+              690,
+              470
+            ],
+            [
+              1020,
+              470
+            ]
+          ],
+          "tokens": [
+            "STOREY",
+            "02"
+          ]
+        },
+        {
+          "id": "rot-dim",
+          "text": "2.75 m",
+          "role": "decimal",
+          "polygon": [
+            [
+              1020,
+              436
+            ],
+            [
+              760,
+              436
+            ],
+            [
+              760,
+              360
+            ],
+            [
+              1020,
+              360
+            ]
+          ],
+          "tokens": [
+            "2.75",
+            "M"
+          ]
+        },
+        {
+          "id": "rot-north",
+          "text": "NORTH",
+          "role": "orientation",
+          "polygon": [
+            [
+              1020,
+              326
+            ],
+            [
+              800,
+              326
+            ],
+            [
+              800,
+              250
+            ],
+            [
+              1020,
+              250
+            ]
+          ],
+          "tokens": [
+            "NORTH"
+          ]
+        }
+      ]
+    },
+    "rotated-270": {
+      "width": 1200,
+      "height": 800,
+      "rotation": 270,
+      "records": [
+        {
+          "id": "rot-storey",
+          "text": "STOREY 02",
+          "role": "storey",
+          "polygon": [
+            [
+              454,
+              820
+            ],
+            [
+              454,
+              490
+            ],
+            [
+              530,
+              490
+            ],
+            [
+              530,
+              820
+            ]
+          ],
+          "tokens": [
+            "STOREY",
+            "02"
+          ]
+        },
+        {
+          "id": "rot-dim",
+          "text": "2.75 m",
+          "role": "decimal",
+          "polygon": [
+            [
+              564,
+              820
+            ],
+            [
+              564,
+              560
+            ],
+            [
+              640,
+              560
+            ],
+            [
+              640,
+              820
+            ]
+          ],
+          "tokens": [
+            "2.75",
+            "M"
+          ]
+        },
+        {
+          "id": "rot-north",
+          "text": "NORTH",
+          "role": "orientation",
+          "polygon": [
+            [
+              674,
+              820
+            ],
+            [
+              674,
+              600
+            ],
+            [
+              750,
+              600
+            ],
+            [
+              750,
+              820
+            ]
+          ],
+          "tokens": [
+            "NORTH"
+          ]
+        }
+      ]
+    },
+    "large-sheet": {
+      "width": 4000,
+      "height": 3000,
+      "rotation": 0,
+      "records": [
+        {
+          "id": "large-title",
+          "text": "LARGE SHEET OCR BENCHMARK",
+          "role": "title",
+          "polygon": [
+            [
+              140,
+              50
+            ],
+            [
+              1340,
+              50
+            ],
+            [
+              1340,
+              130
+            ],
+            [
+              140,
+              130
+            ]
+          ],
+          "tokens": [
+            "LARGE",
+            "SHEET",
+            "OCR",
+            "BENCHMARK"
+          ]
+        },
+        {
+          "id": "large-storey",
+          "text": "STOREY: THIRD FLOOR",
+          "role": "storey",
+          "polygon": [
+            [
+              140,
+              182
+            ],
+            [
+              700,
+              182
+            ],
+            [
+              700,
+              240
+            ],
+            [
+              140,
+              240
+            ]
+          ],
+          "tokens": [
+            "STOREY",
+            "THIRD",
+            "FLOOR"
+          ]
+        },
+        {
+          "id": "room-01",
+          "text": "ROOM 01 AREA 8.25 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              472
+            ],
+            [
+              870,
+              472
+            ],
+            [
+              870,
+              520
+            ],
+            [
+              140,
+              520
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "01",
+            "AREA",
+            "8.25",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-02",
+          "text": "ROOM 02 AREA 8.62 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              642
+            ],
+            [
+              870,
+              642
+            ],
+            [
+              870,
+              690
+            ],
+            [
+              140,
+              690
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "02",
+            "AREA",
+            "8.62",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-03",
+          "text": "ROOM 03 AREA 8.99 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              812
+            ],
+            [
+              870,
+              812
+            ],
+            [
+              870,
+              860
+            ],
+            [
+              140,
+              860
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "03",
+            "AREA",
+            "8.99",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-04",
+          "text": "ROOM 04 AREA 9.36 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              982
+            ],
+            [
+              870,
+              982
+            ],
+            [
+              870,
+              1030
+            ],
+            [
+              140,
+              1030
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "04",
+            "AREA",
+            "9.36",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-05",
+          "text": "ROOM 05 AREA 9.73 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              1152
+            ],
+            [
+              870,
+              1152
+            ],
+            [
+              870,
+              1200
+            ],
+            [
+              140,
+              1200
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "05",
+            "AREA",
+            "9.73",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-06",
+          "text": "ROOM 06 AREA 10.10 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              1322
+            ],
+            [
+              870,
+              1322
+            ],
+            [
+              870,
+              1370
+            ],
+            [
+              140,
+              1370
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "06",
+            "AREA",
+            "10.10",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-07",
+          "text": "ROOM 07 AREA 10.47 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              1492
+            ],
+            [
+              870,
+              1492
+            ],
+            [
+              870,
+              1540
+            ],
+            [
+              140,
+              1540
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "07",
+            "AREA",
+            "10.47",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-08",
+          "text": "ROOM 08 AREA 10.84 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              1662
+            ],
+            [
+              870,
+              1662
+            ],
+            [
+              870,
+              1710
+            ],
+            [
+              140,
+              1710
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "08",
+            "AREA",
+            "10.84",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-09",
+          "text": "ROOM 09 AREA 11.21 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              1832
+            ],
+            [
+              870,
+              1832
+            ],
+            [
+              870,
+              1880
+            ],
+            [
+              140,
+              1880
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "09",
+            "AREA",
+            "11.21",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-10",
+          "text": "ROOM 10 AREA 11.58 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              2002
+            ],
+            [
+              870,
+              2002
+            ],
+            [
+              870,
+              2050
+            ],
+            [
+              140,
+              2050
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "10",
+            "AREA",
+            "11.58",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-11",
+          "text": "ROOM 11 AREA 11.95 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              2172
+            ],
+            [
+              870,
+              2172
+            ],
+            [
+              870,
+              2220
+            ],
+            [
+              140,
+              2220
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "11",
+            "AREA",
+            "11.95",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-12",
+          "text": "ROOM 12 AREA 12.32 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              140,
+              2342
+            ],
+            [
+              870,
+              2342
+            ],
+            [
+              870,
+              2390
+            ],
+            [
+              140,
+              2390
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "12",
+            "AREA",
+            "12.32",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-13",
+          "text": "ROOM 13 AREA 12.69 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              472
+            ],
+            [
+              1830,
+              472
+            ],
+            [
+              1830,
+              520
+            ],
+            [
+              1100,
+              520
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "13",
+            "AREA",
+            "12.69",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-14",
+          "text": "ROOM 14 AREA 13.06 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              642
+            ],
+            [
+              1830,
+              642
+            ],
+            [
+              1830,
+              690
+            ],
+            [
+              1100,
+              690
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "14",
+            "AREA",
+            "13.06",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-15",
+          "text": "ROOM 15 AREA 13.43 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              812
+            ],
+            [
+              1830,
+              812
+            ],
+            [
+              1830,
+              860
+            ],
+            [
+              1100,
+              860
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "15",
+            "AREA",
+            "13.43",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-16",
+          "text": "ROOM 16 AREA 13.80 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              982
+            ],
+            [
+              1830,
+              982
+            ],
+            [
+              1830,
+              1030
+            ],
+            [
+              1100,
+              1030
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "16",
+            "AREA",
+            "13.80",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-17",
+          "text": "ROOM 17 AREA 14.17 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              1152
+            ],
+            [
+              1830,
+              1152
+            ],
+            [
+              1830,
+              1200
+            ],
+            [
+              1100,
+              1200
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "17",
+            "AREA",
+            "14.17",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-18",
+          "text": "ROOM 18 AREA 14.54 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              1322
+            ],
+            [
+              1830,
+              1322
+            ],
+            [
+              1830,
+              1370
+            ],
+            [
+              1100,
+              1370
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "18",
+            "AREA",
+            "14.54",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-19",
+          "text": "ROOM 19 AREA 14.91 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              1492
+            ],
+            [
+              1830,
+              1492
+            ],
+            [
+              1830,
+              1540
+            ],
+            [
+              1100,
+              1540
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "19",
+            "AREA",
+            "14.91",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-20",
+          "text": "ROOM 20 AREA 15.28 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              1662
+            ],
+            [
+              1830,
+              1662
+            ],
+            [
+              1830,
+              1710
+            ],
+            [
+              1100,
+              1710
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "20",
+            "AREA",
+            "15.28",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-21",
+          "text": "ROOM 21 AREA 15.65 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              1832
+            ],
+            [
+              1830,
+              1832
+            ],
+            [
+              1830,
+              1880
+            ],
+            [
+              1100,
+              1880
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "21",
+            "AREA",
+            "15.65",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-22",
+          "text": "ROOM 22 AREA 16.02 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              2002
+            ],
+            [
+              1830,
+              2002
+            ],
+            [
+              1830,
+              2050
+            ],
+            [
+              1100,
+              2050
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "22",
+            "AREA",
+            "16.02",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-23",
+          "text": "ROOM 23 AREA 16.39 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              2172
+            ],
+            [
+              1830,
+              2172
+            ],
+            [
+              1830,
+              2220
+            ],
+            [
+              1100,
+              2220
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "23",
+            "AREA",
+            "16.39",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-24",
+          "text": "ROOM 24 AREA 16.76 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              1100,
+              2342
+            ],
+            [
+              1830,
+              2342
+            ],
+            [
+              1830,
+              2390
+            ],
+            [
+              1100,
+              2390
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "24",
+            "AREA",
+            "16.76",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-25",
+          "text": "ROOM 25 AREA 17.13 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              472
+            ],
+            [
+              2790,
+              472
+            ],
+            [
+              2790,
+              520
+            ],
+            [
+              2060,
+              520
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "25",
+            "AREA",
+            "17.13",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-26",
+          "text": "ROOM 26 AREA 17.50 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              642
+            ],
+            [
+              2790,
+              642
+            ],
+            [
+              2790,
+              690
+            ],
+            [
+              2060,
+              690
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "26",
+            "AREA",
+            "17.50",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-27",
+          "text": "ROOM 27 AREA 17.87 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              812
+            ],
+            [
+              2790,
+              812
+            ],
+            [
+              2790,
+              860
+            ],
+            [
+              2060,
+              860
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "27",
+            "AREA",
+            "17.87",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-28",
+          "text": "ROOM 28 AREA 18.24 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              982
+            ],
+            [
+              2790,
+              982
+            ],
+            [
+              2790,
+              1030
+            ],
+            [
+              2060,
+              1030
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "28",
+            "AREA",
+            "18.24",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-29",
+          "text": "ROOM 29 AREA 18.61 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              1152
+            ],
+            [
+              2790,
+              1152
+            ],
+            [
+              2790,
+              1200
+            ],
+            [
+              2060,
+              1200
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "29",
+            "AREA",
+            "18.61",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-30",
+          "text": "ROOM 30 AREA 18.98 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              1322
+            ],
+            [
+              2790,
+              1322
+            ],
+            [
+              2790,
+              1370
+            ],
+            [
+              2060,
+              1370
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "30",
+            "AREA",
+            "18.98",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-31",
+          "text": "ROOM 31 AREA 19.35 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              1492
+            ],
+            [
+              2790,
+              1492
+            ],
+            [
+              2790,
+              1540
+            ],
+            [
+              2060,
+              1540
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "31",
+            "AREA",
+            "19.35",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-32",
+          "text": "ROOM 32 AREA 19.72 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              1662
+            ],
+            [
+              2790,
+              1662
+            ],
+            [
+              2790,
+              1710
+            ],
+            [
+              2060,
+              1710
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "32",
+            "AREA",
+            "19.72",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-33",
+          "text": "ROOM 33 AREA 20.09 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              1832
+            ],
+            [
+              2790,
+              1832
+            ],
+            [
+              2790,
+              1880
+            ],
+            [
+              2060,
+              1880
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "33",
+            "AREA",
+            "20.09",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-34",
+          "text": "ROOM 34 AREA 20.46 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              2002
+            ],
+            [
+              2790,
+              2002
+            ],
+            [
+              2790,
+              2050
+            ],
+            [
+              2060,
+              2050
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "34",
+            "AREA",
+            "20.46",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-35",
+          "text": "ROOM 35 AREA 20.83 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              2172
+            ],
+            [
+              2790,
+              2172
+            ],
+            [
+              2790,
+              2220
+            ],
+            [
+              2060,
+              2220
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "35",
+            "AREA",
+            "20.83",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-36",
+          "text": "ROOM 36 AREA 21.20 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              2060,
+              2342
+            ],
+            [
+              2790,
+              2342
+            ],
+            [
+              2790,
+              2390
+            ],
+            [
+              2060,
+              2390
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "36",
+            "AREA",
+            "21.20",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-37",
+          "text": "ROOM 37 AREA 21.57 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              472
+            ],
+            [
+              3750,
+              472
+            ],
+            [
+              3750,
+              520
+            ],
+            [
+              3020,
+              520
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "37",
+            "AREA",
+            "21.57",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-38",
+          "text": "ROOM 38 AREA 21.94 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              642
+            ],
+            [
+              3750,
+              642
+            ],
+            [
+              3750,
+              690
+            ],
+            [
+              3020,
+              690
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "38",
+            "AREA",
+            "21.94",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-39",
+          "text": "ROOM 39 AREA 22.31 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              812
+            ],
+            [
+              3750,
+              812
+            ],
+            [
+              3750,
+              860
+            ],
+            [
+              3020,
+              860
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "39",
+            "AREA",
+            "22.31",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-40",
+          "text": "ROOM 40 AREA 22.68 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              982
+            ],
+            [
+              3750,
+              982
+            ],
+            [
+              3750,
+              1030
+            ],
+            [
+              3020,
+              1030
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "40",
+            "AREA",
+            "22.68",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-41",
+          "text": "ROOM 41 AREA 23.05 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              1152
+            ],
+            [
+              3750,
+              1152
+            ],
+            [
+              3750,
+              1200
+            ],
+            [
+              3020,
+              1200
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "41",
+            "AREA",
+            "23.05",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-42",
+          "text": "ROOM 42 AREA 23.42 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              1322
+            ],
+            [
+              3750,
+              1322
+            ],
+            [
+              3750,
+              1370
+            ],
+            [
+              3020,
+              1370
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "42",
+            "AREA",
+            "23.42",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-43",
+          "text": "ROOM 43 AREA 23.79 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              1492
+            ],
+            [
+              3750,
+              1492
+            ],
+            [
+              3750,
+              1540
+            ],
+            [
+              3020,
+              1540
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "43",
+            "AREA",
+            "23.79",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-44",
+          "text": "ROOM 44 AREA 24.16 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              1662
+            ],
+            [
+              3750,
+              1662
+            ],
+            [
+              3750,
+              1710
+            ],
+            [
+              3020,
+              1710
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "44",
+            "AREA",
+            "24.16",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-45",
+          "text": "ROOM 45 AREA 24.53 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              1832
+            ],
+            [
+              3750,
+              1832
+            ],
+            [
+              3750,
+              1880
+            ],
+            [
+              3020,
+              1880
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "45",
+            "AREA",
+            "24.53",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-46",
+          "text": "ROOM 46 AREA 24.90 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              2002
+            ],
+            [
+              3750,
+              2002
+            ],
+            [
+              3750,
+              2050
+            ],
+            [
+              3020,
+              2050
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "46",
+            "AREA",
+            "24.90",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-47",
+          "text": "ROOM 47 AREA 25.27 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              2172
+            ],
+            [
+              3750,
+              2172
+            ],
+            [
+              3750,
+              2220
+            ],
+            [
+              3020,
+              2220
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "47",
+            "AREA",
+            "25.27",
+            "M2"
+          ]
+        },
+        {
+          "id": "room-48",
+          "text": "ROOM 48 AREA 25.64 m2",
+          "role": "large-sheet-row",
+          "polygon": [
+            [
+              3020,
+              2342
+            ],
+            [
+              3750,
+              2342
+            ],
+            [
+              3750,
+              2390
+            ],
+            [
+              3020,
+              2390
+            ]
+          ],
+          "tokens": [
+            "ROOM",
+            "48",
+            "AREA",
+            "25.64",
+            "M2"
+          ]
+        }
+      ]
+    }
+  }
+}

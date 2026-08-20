@@ -1,0 +1,89 @@
+{
+  "policyId": "ocr-engine-policy-v1",
+  "policyVersion": 1,
+  "status": "conditional-selection",
+  "immutableAsOf": "2026-08-20",
+  "benchmarkResults": "docs/ocr/benchmark-results-2026-08-20.json",
+  "corpus": {
+    "manifestSha256": "44db80a3247369a52d3eb8d9b5162aa258f8a0afde98c14818c9a83792302c8c",
+    "groundTruthSha256": "3b57e6740bd0afbf9473df9dc0a4dc282f1e73e956ea70554454ab0f38ec2a17",
+    "assetCount": 7,
+    "assets": ["title-storey", "numeric-units", "rotated-0", "rotated-90", "rotated-180", "rotated-270", "large-sheet"]
+  },
+  "packages": {
+    "primary": {
+      "name": "tesseract.js",
+      "version": "7.0.0",
+      "tarballBytes": 616435,
+      "tarballSha256": "9a93bf51c3387f945d10a24bf8b3a4bf2e45c7c7161b8242aafbaf9d3c4b606a",
+      "language": "eng",
+      "modelBytes": 5199098,
+      "modelSha256": "5dc5d8d640a212c9d6184921ba103b186f50e0fed9ee716c53e6b312b400d747",
+      "deployedModelBytes": 2952873,
+      "deployedModelSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91"
+    },
+    "alternative": {
+      "name": "@paddleocr/paddleocr-js",
+      "version": "0.4.2",
+      "tarballBytes": 7346941,
+      "tarballSha256": "3b9ae2ce7214b17cb5a4c5dfd3b6c168a51c0ed442642126e71016ea9be9d114",
+      "ocrVersion": "PP-OCRv5 mobile",
+      "backend": "wasm",
+      "detectionModel": {
+        "bytes": 4843520,
+        "sha256": "781056046c9ed77a15c94681605db6a0f62317c2e9cce6931c71da2478d4bc30"
+      },
+      "recognitionModel": {
+        "bytes": 16701440,
+        "sha256": "f7e792bc836f36e7ef895ad47c426d75b0b75b1650caa6d63fe9418441ffba8c"
+      }
+    }
+  },
+  "measurements": {
+    "tesseract": {
+      "coldPrepareMs": 1157,
+      "warmPrepareMs": 79,
+      "fullLargeSheetMs": 1106,
+      "largeSheetTilesMs": 1726,
+      "largeSheetTileTokenRecall": 0.9959514170040485,
+      "peakProcessRssBytes": 478887936,
+      "lineExact": {"titleStorey": 1, "numericUnits": 1, "rotation0": 1, "rotation90": 0, "rotation180": 0, "rotation270": 0, "largeSheet": 1},
+      "tokenRecall": {"rotation90": 0.2, "rotation180": 0, "rotation270": 0}
+    },
+    "paddle": {
+      "coldPrepareMs": 17421.60000000149,
+      "fullLargeSheetMs": 7088,
+      "browserUsedHeapBytes": 509557079,
+      "browserTotalHeapBytes": 515272351,
+      "lineExact": {"titleStorey": 1, "numericUnits": 1, "rotation0": 1, "rotation90": 0, "rotation180": 0, "rotation270": 0, "largeSheet": 1},
+      "tokenRecall": {"rotation90": 0.4, "rotation180": 0, "rotation270": 0}
+    }
+  },
+  "selection": {
+    "primary": "tesseract.js@7.0.0",
+    "alternative": "@paddleocr/paddleocr-js@0.4.2",
+    "rationale": [
+      "Tesseract matched every non-rotated line in this corpus and matched Paddle on numeric/title/large-sheet lines.",
+      "Tesseract package/model bytes are 616435/5199098 versus Paddle package plus two models at 7346941/21544960.",
+      "Tesseract cold preparation and large-sheet latency were materially lower in this run.",
+      "Paddle returned native polygons and higher raw 90-degree token recall, so it remains the alternative for a future orientation-aware policy."
+    ],
+    "notApprovedFor": ["geometry", "scale", "measurement", "quantity", "rate", "automatic export"]
+  },
+  "promotionGates": {
+    "rawRotation90And180MustPass": false,
+    "rawRotation270MustPass": false,
+    "reasonNotPassed": "Both engines failed the unnormalized 90/180/270-degree line gate and neither has an orientation-normalization stage in this benchmark.",
+    "realStudioCorpusRequired": true,
+    "cacheOfflineEvictionAndUnsupportedStatesMeasured": true,
+    "nativePdfTextPrecedenceMeasured": true,
+    "integrationEvidence": ["test/ocr-real-browser.test.js", "test/ocr-interface.test.js", "test/ocr-results.test.js"]
+  },
+  "safetyPolicy": {
+    "outputKind": "text-observations-only",
+    "requiredFields": ["pageId", "polygon", "text", "confidence", "engineVersion", "modelVersion", "processingRunId"],
+    "suspiciousNumericText": "review-evidence-only",
+    "nativePdfOverlap": "native-text-wins; retain OCR as suppressed/conflict evidence",
+    "failureMode": "visible non-OCR workflow; never fail the deterministic drawing run"
+  }
+}

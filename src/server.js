@@ -1,14 +1,32 @@
 const { createServer: createHttpServer } = require('node:http');
+const { createHash } = require('node:crypto');
 const { readFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { createApplication, InputError, NotFoundError, ConflictError } = require('./application');
 const { LIMITS, LimitError } = require('./ingestion/limits');
+const { OcrResultError } = require('./ocr-results');
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 const MAX_UPLOAD_BODY_BYTES = LIMITS.uploadBytes;
 const PDFJS_ASSETS = Object.freeze({
   '/pdfjs/pdf.mjs': 'pdf.mjs',
   '/pdfjs/pdf.worker.mjs': 'pdf.worker.mjs'
+});
+const OCR_ASSETS = Object.freeze({
+  '/ocr/engine.js': { file: 'public/ocr/engine.js', contentType: 'text/javascript; charset=utf-8', cacheControl: 'public, max-age=3600' },
+  '/ocr/model-cache.js': { file: 'public/ocr/model-cache.js', contentType: 'text/javascript; charset=utf-8', cacheControl: 'public, max-age=3600' },
+  '/ocr/normalize.js': { file: 'public/ocr/normalize.js', contentType: 'text/javascript; charset=utf-8', cacheControl: 'public, max-age=3600' },
+  '/ocr/tesseract.js': { file: 'public/ocr/tesseract.js', contentType: 'text/javascript; charset=utf-8', cacheControl: 'public, max-age=3600' },
+  '/ocr/paddle.js': { file: 'public/ocr/paddle.js', contentType: 'text/javascript; charset=utf-8', cacheControl: 'public, max-age=3600' },
+  '/ocr/vendor/tesseract.js/dist/tesseract.min.js': { file: 'node_modules/tesseract.js/dist/tesseract.min.js', contentType: 'text/javascript; charset=utf-8' },
+  '/ocr/vendor/tesseract.js/dist/worker.min.js': { file: 'node_modules/tesseract.js/dist/worker.min.js', contentType: 'text/javascript; charset=utf-8' },
+  '/ocr/vendor/tesseract.js-core/tesseract-core-lstm.wasm.js': { file: 'node_modules/tesseract.js-core/tesseract-core-lstm.wasm.js', contentType: 'text/javascript; charset=utf-8' },
+  '/ocr/vendor/tesseract.js-core/tesseract-core-lstm.wasm': { file: 'node_modules/tesseract.js-core/tesseract-core-lstm.wasm', contentType: 'application/wasm' },
+  '/ocr/vendor/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js': { file: 'node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js', contentType: 'text/javascript; charset=utf-8' },
+  '/ocr/vendor/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm': { file: 'node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm', contentType: 'application/wasm' },
+  '/ocr/vendor/tesseract.js-core/tesseract-core-simd-lstm.wasm.js': { file: 'node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm.js', contentType: 'text/javascript; charset=utf-8' },
+  '/ocr/vendor/tesseract.js-core/tesseract-core-simd-lstm.wasm': { file: 'node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm', contentType: 'application/wasm' },
+  '/ocr/vendor/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz': { file: 'node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz', contentType: 'application/gzip', trainedDataSha256: '45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91' }
 });
 
 class PayloadTooLargeError extends Error {
@@ -25,6 +43,7 @@ function createServer(application = createApplication()) {
       if (request.method === 'GET' && url.pathname === '/') return sendFile(response, 'index.html', 'text/html; charset=utf-8');
       if (request.method === 'GET' && url.pathname === '/app.js') return sendFile(response, 'app.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && PDFJS_ASSETS[url.pathname]) return sendPdfjsAsset(response, PDFJS_ASSETS[url.pathname]);
+      if (request.method === 'GET' && OCR_ASSETS[url.pathname]) return sendOcrAsset(response, OCR_ASSETS[url.pathname]);
       if (request.method === 'POST' && url.pathname === '/api/projects') {
         return sendJson(response, 201, { project: application.createProject(await readJson(request)) });
       }
@@ -72,6 +91,11 @@ function createServer(application = createApplication()) {
       }
       const runMatch = /^\/api\/runs\/(run_\d+)$/.exec(url.pathname);
       if (request.method === 'GET' && runMatch) return sendJson(response, 200, application.getRun(runMatch[1]));
+      const ocrResultsMatch = /^\/api\/runs\/(run_\d+)\/pages\/(page_\d+)\/ocr-results$/.exec(url.pathname);
+      if (request.method === 'GET' && ocrResultsMatch) return sendJson(response, 200, application.getOcrResults(ocrResultsMatch[1], ocrResultsMatch[2]));
+      if (request.method === 'POST' && ocrResultsMatch) return sendJson(response, 201, application.submitOcrResults(ocrResultsMatch[1], ocrResultsMatch[2], await readJson(request)));
+      const ocrStatusMatch = /^\/api\/runs\/(run_\d+)\/ocr-status$/.exec(url.pathname);
+      if (request.method === 'GET' && ocrStatusMatch) return sendJson(response, 200, application.getOcrStatus(ocrStatusMatch[1]));
       const imageMatch = /^\/api\/runs\/(run_\d+)\/pages\/(page_\d+)\/image$/.exec(url.pathname);
       if (request.method === 'GET' && imageMatch) {
         const image = application.getRasterImage(imageMatch[1], imageMatch[2]);
@@ -91,7 +115,7 @@ function createServer(application = createApplication()) {
       if (request.method === 'DELETE' && regionMatch?.[3]) return sendJson(response, 200, application.deleteRasterRegion(regionMatch[1], regionMatch[2], regionMatch[3], revisionQuery(url)));
       return sendJson(response, 404, { error: 'Not found.' });
     } catch (error) {
-      const status = error instanceof PayloadTooLargeError || error instanceof LimitError ? 413 : error instanceof ConflictError ? 409 : error instanceof InputError ? 422 : error instanceof NotFoundError ? 404 : 500;
+      const status = error instanceof PayloadTooLargeError || error instanceof LimitError ? 413 : error instanceof ConflictError ? 409 : error instanceof InputError || error instanceof OcrResultError || error.code === 'invalid_ocr_result' ? 422 : error instanceof NotFoundError || error.code === 'not_found' ? 404 : 500;
       const runContext = /^\/api\/runs\/(run_\d+)(?:\/pages\/(page_\d+))?/.exec(new URL(request.url, 'http://localhost').pathname);
       const body = {
         error: status === 500 ? 'Unexpected server error.' : (error.message || 'Unexpected server error.'),
@@ -217,6 +241,19 @@ async function sendFile(response, filename, contentType) {
 async function sendPdfjsAsset(response, filename) {
   const content = await readFile(join(__dirname, '..', 'node_modules', 'pdfjs-dist', 'build', filename));
   response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' });
+  response.end(content);
+}
+
+async function sendOcrAsset(response, asset) {
+  const content = await readFile(join(__dirname, '..', asset.file));
+  const headers = { 'content-type': asset.contentType, 'cache-control': asset.cacheControl || 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' };
+  if (asset.trainedDataSha256) {
+    const sha256 = createHash('sha256').update(content).digest('hex');
+    if (sha256 !== asset.trainedDataSha256) throw new Error('Pinned OCR model asset integrity check failed.');
+    headers.etag = `"${sha256}"`;
+    headers['x-content-sha256'] = sha256;
+  }
+  response.writeHead(200, headers);
   response.end(content);
 }
 

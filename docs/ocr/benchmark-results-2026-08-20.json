@@ -1,0 +1,2291 @@
+{
+  "schemaVersion": "ocr-benchmark-results-v1",
+  "benchmarkDate": "2026-08-20",
+  "runStartedAt": "2026-08-20T02:01:48.761Z",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v26.7.0"
+  },
+  "corpus": {
+    "manifestSha256": "44db80a3247369a52d3eb8d9b5162aa258f8a0afde98c14818c9a83792302c8c",
+    "groundTruthSha256": "3b57e6740bd0afbf9473df9dc0a4dc282f1e73e956ea70554454ab0f38ec2a17",
+    "assets": {
+      "title-storey": {
+        "sha256": "8483b460a915d3fbb633704fe5adc43a2e221cd4cc4ed21def5b0b3c4c210400",
+        "bytes": 49116,
+        "width": 1800,
+        "height": 1000
+      },
+      "numeric-units": {
+        "sha256": "fd91d7550d95ce4162656c7dc2e1d74faf1dcbaebcc15fe11cf60dccd7f0d818",
+        "bytes": 45323,
+        "width": 1800,
+        "height": 1100
+      },
+      "rotated-0": {
+        "sha256": "f07e5f70035837e090155721339958831513cde388a32c6ad7b521e92a0aec9b",
+        "bytes": 17017,
+        "width": 1200,
+        "height": 800
+      },
+      "rotated-90": {
+        "sha256": "b8a1f74ffd1a7b6c797b38d02bd4f502e98e5c1ec8b16eb0a0874acd4bf08300",
+        "bytes": 16454,
+        "width": 1200,
+        "height": 800
+      },
+      "rotated-180": {
+        "sha256": "417f57a0696f026b5c8b0740191c34055deb9d9ab9d5f00fa4a399d74958d088",
+        "bytes": 17179,
+        "width": 1200,
+        "height": 800
+      },
+      "rotated-270": {
+        "sha256": "d16846abe5c3c299002cb5ce3cbb8636aac2bae6eb50d1e2a0dde57115bc1c90",
+        "bytes": 15511,
+        "width": 1200,
+        "height": 800
+      },
+      "large-sheet": {
+        "sha256": "2d8247aa9d8122e5abcbb0402b7aab4cfcde9c8ce0d66449d1795560b1991512",
+        "bytes": 227728,
+        "width": 4000,
+        "height": 3000
+      }
+    }
+  },
+  "packages": {
+    "tesseract": {
+      "name": "tesseract.js",
+      "version": "7.0.0",
+      "packageTarball": {
+        "path": "/private/tmp/boq-ocr-deps/tesseract.js-7.0.0.tgz",
+        "bytes": 616435,
+        "sha256": "9a93bf51c3387f945d10a24bf8b3a4bf2e45c7c7161b8242aafbaf9d3c4b606a"
+      }
+    },
+    "paddle": {
+      "name": "@paddleocr/paddleocr-js",
+      "version": "0.4.2",
+      "packageTarball": {
+        "path": "/private/tmp/boq-ocr-deps/paddleocr-paddleocr-js-0.4.2.tgz",
+        "bytes": 7346941,
+        "sha256": "3b9ae2ce7214b17cb5a4c5dfd3b6c168a51c0ed442642126e71016ea9be9d114"
+      }
+    }
+  },
+  "engines": {
+    "tesseract": {
+      "status": "completed",
+      "engine": "tesseract.js",
+      "version": "7.0.0",
+      "language": "eng",
+      "preparation": {
+        "coldPrepareMs": 1157,
+        "warmPrepareMs": 79,
+        "cachePath": "/private/tmp/boq-v1-ocr-benchmark-cache-61725",
+        "model": {
+          "path": "/private/tmp/boq-v1-ocr-benchmark-cache-61725/eng.traineddata",
+          "bytes": 5199098,
+          "sha256": "5dc5d8d640a212c9d6184921ba103b186f50e0fed9ee716c53e6b312b400d747"
+        }
+      },
+      "memoryProxy": {
+        "kind": "node-process-rss",
+        "beforeBytes": 151470080,
+        "afterPrepareBytes": 230490112,
+        "peakBytes": 478887936,
+        "note": "RSS includes the Node process and worker thread; it is not browser per-tab heap."
+      },
+      "assets": {
+        "title-storey": {
+          "elapsedMs": 174,
+          "rssBytes": 248283136,
+          "text": "DRAWING TO BOQ\nPROJECT: KORAMANGALA RESIDENCE\nSTOREY: GROUND FLOOR\n\nSHEET: A-101\n\nSCALE 1:50\n\nNOTES: VERIFY ON SITE\n",
+          "tokenRecall": {
+            "matched": 19,
+            "expected": 19,
+            "rate": 1
+          },
+          "lineExactRate": {
+            "matched": 6,
+            "expected": 6,
+            "rate": 1
+          },
+          "averageConfidence": 95.93968111764707
+        },
+        "numeric-units": {
+          "elapsedMs": 126,
+          "rssBytes": 264224768,
+          "text": "4500 mm UNITS: MILLIMETRES\n\n3.25 m LEVEL +3.60 m\n\n1.20 m WALL THICKNESS 230 mm\n0.75 m CHECK DIMENSION 999.99 mm\n",
+          "tokenRecall": {
+            "matched": 21,
+            "expected": 21,
+            "rate": 1
+          },
+          "lineExactRate": {
+            "matched": 8,
+            "expected": 8,
+            "rate": 1
+          },
+          "averageConfidence": 84.08548047619047
+        },
+        "rotated-0": {
+          "elapsedMs": 39,
+          "rssBytes": 264323072,
+          "text": "STOREY 02\n2.75 m\nNORTH\n",
+          "tokenRecall": {
+            "matched": 5,
+            "expected": 5,
+            "rate": 1
+          },
+          "lineExactRate": {
+            "matched": 3,
+            "expected": 3,
+            "rate": 1
+          },
+          "averageConfidence": 85.49833079999999
+        },
+        "rotated-90": {
+          "elapsedMs": 53,
+          "rssBytes": 279724032,
+          "text": "oO ~~ d\nx «a O\n- 3 A\nT m\n<\no\nN\n",
+          "tokenRecall": {
+            "matched": 1,
+            "expected": 5,
+            "rate": 0.2
+          },
+          "lineExactRate": {
+            "matched": 0,
+            "expected": 3,
+            "rate": 0
+          },
+          "averageConfidence": 68.57089292857142
+        },
+        "rotated-180": {
+          "elapsedMs": 46,
+          "rssBytes": 282230784,
+          "text": "HL¥ON\nwegLe\nC0 AFROLS\n",
+          "tokenRecall": {
+            "matched": 0,
+            "expected": 5,
+            "rate": 0
+          },
+          "lineExactRate": {
+            "matched": 0,
+            "expected": 3,
+            "rate": 0
+          },
+          "averageConfidence": 16.6644145
+        },
+        "rotated-270": {
+          "elapsedMs": 46,
+          "rssBytes": 282329088,
+          "text": "N\n\no\n\nLoo ox\n\ngk\nwn\n\nFF ~ O\n",
+          "tokenRecall": {
+            "matched": 0,
+            "expected": 5,
+            "rate": 0
+          },
+          "lineExactRate": {
+            "matched": 0,
+            "expected": 3,
+            "rate": 0
+          },
+          "averageConfidence": 45.10595633333334
+        },
+        "large-sheet": {
+          "elapsedMs": 1106,
+          "rssBytes": 384270336,
+          "text": "LARGE SHEET OCR BENCHMARK\n\nSTOREY: THIRD FLOOR\n\nROOM 01 AREA 8.25 m2 ROOM 13 AREA 12.69 m2 ROOM 25 AREA 17.13 m2 ROOM 37 AREA 21.57 m2\nROOM 02 AREA 8.62 m2 ROOM 14 AREA 13.06 m2 ROOM 26 AREA 17.50 m2 ROOM 38 AREA 21.94 m2\nROOM 03 AREA 8.99 m2 ROOM 15 AREA 13.43 m2 ROOM 27 AREA 17.87 m2 ROOM 39 AREA 22.31 m2\nROOM 04 AREA 9.36 m2 ROOM 16 AREA 13.80 m2 ROOM 28 AREA 18.24 m2 ROOM 40 AREA 22.68 m2\nROOM 05 AREA 9.73 m2 ROOM 17 AREA 14.17 m2 ROOM 29 AREA 18.61 m2 ROOM 41 AREA 23.05 m2\nROOM 06 AREA 10.10 m2 ROOM 18 AREA 14.54 m2 ROOM 30 AREA 18.98 m2 ROOM 42 AREA 23.42 m2\nROOM 07 AREA 10.47 m2 ROOM 19 AREA 14.91 m2 ROOM 31 AREA 19.35 m2 ROOM 43 AREA 23.79 m2\nROOM 08 AREA 10.84 m2 ROOM 20 AREA 15.28 m2 ROOM 32 AREA 19.72 m2 ROOM 44 AREA 24.16 m2\nROOM 09 AREA 11.21 m2 ROOM 21 AREA 15.65 m2 ROOM 33 AREA 20.09 m2 ROOM 45 AREA 24.53 m2\nROOM 10 AREA 11.58 m2 ROOM 22 AREA 16.02 m2 ROOM 34 AREA 20.46 m2 ROOM 46 AREA 24.90 m2\nROOM 11 AREA 11.95 m2 ROOM 23 AREA 16.39 m2 ROOM 35 AREA 20.83 m2 ROOM 47 AREA 25.27 m2\nROOM 12 AREA 12.32 m2 ROOM 24 AREA 16.76 m2 ROOM 36 AREA 21.20 m2 ROOM 48 AREA 25.64 m2\n",
+          "tokenRecall": {
+            "matched": 247,
+            "expected": 247,
+            "rate": 1
+          },
+          "lineExactRate": {
+            "matched": 50,
+            "expected": 50,
+            "rate": 1
+          },
+          "averageConfidence": 96.32857452631583
+        }
+      },
+      "largeSheetTiles": {
+        "status": "completed",
+        "tileCount": 12,
+        "elapsedMs": 1726,
+        "tokenRecall": {
+          "matched": 246,
+          "expected": 247,
+          "rate": 0.9959514170040485
+        },
+        "tiles": [
+          {
+            "row": 0,
+            "col": 0,
+            "left": 0,
+            "top": 0,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 156,
+            "text": "LARGE SHEET OCR BENCHN STOREY THIRD FLOOR ROOM 01 AREA 8.25 M2 ROOM 02 AREA 8.62 M2 ROOM 03 AREA 8.99 M2"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "left": 1000,
+            "top": 0,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 125,
+            "text": "ROOM 13 AREA 12.69 M2 ROOM 14 AREA 13.06 M2 ROOM 15 AREA 13.43 M2"
+          },
+          {
+            "row": 0,
+            "col": 2,
+            "left": 2000,
+            "top": 0,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 120,
+            "text": "ROOM 25 AREA 17.13 M2 ROOM 26 AREA 17.50 M2 ROOM 27 AREA 17.87 M2"
+          },
+          {
+            "row": 0,
+            "col": 3,
+            "left": 3000,
+            "top": 0,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 123,
+            "text": "ROOM 37 AREA 21.57 M2 ROOM 38 AREA 21.94 M2 ROOM 39 AREA 22.31 M2"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "left": 0,
+            "top": 1000,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 173,
+            "text": "ROOM 04 AREA 9.36 M2 ROOM 05 AREA 9.73 M2 ROOM 06 AREA 10.10 M2 ROOM 07 AREA 10.47 M2 ROOM 08 AREA 10.84 M2 ROOM 09 AREA 11.21 M2"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "left": 1000,
+            "top": 1000,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 176,
+            "text": "ROOM 16 AREA 13.80 M2 ROOM 17 AREA 14.17 M2 ROOM 18 AREA 14.54 M2 ROOM 19 AREA 14.91 M2 ROOM 20 AREA 15.28 M2 ROOM 21 AREA 15.65 M2"
+          },
+          {
+            "row": 1,
+            "col": 2,
+            "left": 2000,
+            "top": 1000,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 175,
+            "text": "ROOM 28 AREA 18.24 M2 ROOM 29 AREA 18.61 M2 ROOM 30 AREA 18.98 M2 ROOM 31 AREA 19.35 M2 ROOM 32 AREA 19.72 M2 ROOM 33 AREA 20.09 M2"
+          },
+          {
+            "row": 1,
+            "col": 3,
+            "left": 3000,
+            "top": 1000,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 175,
+            "text": "ROOM 40 AREA 22.68 M2 ROOM 41 AREA 23.05 M2 ROOM 42 AREA 23.42 M2 ROOM 43 AREA 23.79 M2 ROOM 44 AREA 24.16 M2 ROOM 45 AREA 24.53 M2"
+          },
+          {
+            "row": 2,
+            "col": 0,
+            "left": 0,
+            "top": 2000,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 125,
+            "text": "ROOM 10 AREA 11.58 M2 ROOM 11 AREA 11.95 M2 ROOM 12 AREA 12.32 M2"
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "left": 1000,
+            "top": 2000,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 125,
+            "text": "ROOM 22 AREA 16.02 M2 ROOM 23 AREA 16.39 M2 ROOM 24 AREA 16.76 M2"
+          },
+          {
+            "row": 2,
+            "col": 2,
+            "left": 2000,
+            "top": 2000,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 121,
+            "text": "ROOM 34 AREA 20.46 M2 ROOM 35 AREA 20.83 M2 ROOM 36 AREA 21.20 M2"
+          },
+          {
+            "row": 2,
+            "col": 3,
+            "left": 3000,
+            "top": 2000,
+            "width": 1000,
+            "height": 1000,
+            "elapsedMs": 132,
+            "text": "ROOM 46 AREA 24.90 M2 ROOM 47 AREA 25.27 M2 ROOM 48 AREA 25.64 M2"
+          }
+        ]
+      },
+      "wallClockMs": 4564
+    },
+    "paddle": {
+      "status": "completed",
+      "engine": "@paddleocr/paddleocr-js",
+      "version": "0.4.2",
+      "backend": "wasm",
+      "browser": {
+        "coldPrepareMs": 17421.60000000149,
+        "assets": {
+          "title-storey": {
+            "elapsedMs": 1291.3999999985099,
+            "metrics": {
+              "detMs": 663.5,
+              "recMs": 602.8999999985099,
+              "totalMs": 1291.0999999940395,
+              "detectedBoxes": 6,
+              "recognizedCount": 6
+            },
+            "runtime": {
+              "requestedBackend": "wasm",
+              "detProvider": "wasm",
+              "recProvider": "wasm",
+              "webgpuAvailable": false
+            },
+            "image": {
+              "width": 1800,
+              "height": 1000
+            },
+            "items": [
+              {
+                "poly": [
+                  [
+                    122,
+                    73
+                  ],
+                  [
+                    727,
+                    78
+                  ],
+                  [
+                    727,
+                    153
+                  ],
+                  [
+                    121,
+                    149
+                  ]
+                ],
+                "text": "DRAWING TO BOQ",
+                "score": 0.9704497924872807
+              },
+              {
+                "poly": [
+                  [
+                    124,
+                    231
+                  ],
+                  [
+                    895,
+                    231
+                  ],
+                  [
+                    895,
+                    275
+                  ],
+                  [
+                    124,
+                    275
+                  ]
+                ],
+                "text": "PROJECT: KORAMANGALA RESIDEnCE",
+                "score": 0.8837031066417694
+              },
+              {
+                "poly": [
+                  [
+                    125,
+                    335
+                  ],
+                  [
+                    690,
+                    335
+                  ],
+                  [
+                    690,
+                    379
+                  ],
+                  [
+                    125,
+                    379
+                  ]
+                ],
+                "text": "STOREY: GROUND FLOOR",
+                "score": 0.9666058421134949
+              },
+              {
+                "poly": [
+                  [
+                    126,
+                    443
+                  ],
+                  [
+                    388,
+                    443
+                  ],
+                  [
+                    388,
+                    484
+                  ],
+                  [
+                    126,
+                    484
+                  ]
+                ],
+                "text": "SHEET: A-101",
+                "score": 0.9953627834717432
+              },
+              {
+                "poly": [
+                  [
+                    125,
+                    547
+                  ],
+                  [
+                    356,
+                    547
+                  ],
+                  [
+                    356,
+                    590
+                  ],
+                  [
+                    125,
+                    590
+                  ]
+                ],
+                "text": "SCALE 1:50",
+                "score": 0.9820550322532654
+              },
+              {
+                "poly": [
+                  [
+                    125,
+                    776
+                  ],
+                  [
+                    556,
+                    776
+                  ],
+                  [
+                    556,
+                    814
+                  ],
+                  [
+                    125,
+                    814
+                  ]
+                ],
+                "text": "NOTES: VERIFY ON SITE",
+                "score": 0.9349764670644488
+              }
+            ],
+            "accuracy": {
+              "elapsedMs": 1291,
+              "rssBytes": null,
+              "text": "DRAWING TO BOQ\nPROJECT: KORAMANGALA RESIDEnCE\nSTOREY: GROUND FLOOR\nSHEET: A-101\nSCALE 1:50\nNOTES: VERIFY ON SITE",
+              "tokenRecall": {
+                "matched": 19,
+                "expected": 19,
+                "rate": 1
+              },
+              "lineExactRate": {
+                "matched": 6,
+                "expected": 6,
+                "rate": 1
+              },
+              "averageConfidence": null
+            },
+            "averageScore": 0.9555255040053338
+          },
+          "numeric-units": {
+            "elapsedMs": 1051.6000000014901,
+            "metrics": {
+              "detMs": 597.3000000044703,
+              "recMs": 449.79999999701977,
+              "totalMs": 1051.6000000014901,
+              "detectedBoxes": 8,
+              "recognizedCount": 8
+            },
+            "runtime": {
+              "requestedBackend": "wasm",
+              "detProvider": "wasm",
+              "recProvider": "wasm",
+              "webgpuAvailable": false
+            },
+            "image": {
+              "width": 1800,
+              "height": 1100
+            },
+            "items": [
+              {
+                "poly": [
+                  [
+                    122,
+                    102
+                  ],
+                  [
+                    374,
+                    110
+                  ],
+                  [
+                    372,
+                    175
+                  ],
+                  [
+                    120,
+                    166
+                  ]
+                ],
+                "text": "4500 mm",
+                "score": 0.9769537193434579
+              },
+              {
+                "poly": [
+                  [
+                    854,
+                    118
+                  ],
+                  [
+                    1315,
+                    118
+                  ],
+                  [
+                    1315,
+                    166
+                  ],
+                  [
+                    854,
+                    166
+                  ]
+                ],
+                "text": "UNITS: MILLIMETRES",
+                "score": 0.9057433538966708
+              },
+              {
+                "poly": [
+                  [
+                    117,
+                    241
+                  ],
+                  [
+                    313,
+                    245
+                  ],
+                  [
+                    311,
+                    314
+                  ],
+                  [
+                    116,
+                    310
+                  ]
+                ],
+                "text": "3.25 m",
+                "score": 0.9423957864443461
+              },
+              {
+                "poly": [
+                  [
+                    852,
+                    250
+                  ],
+                  [
+                    1221,
+                    253
+                  ],
+                  [
+                    1220,
+                    309
+                  ],
+                  [
+                    852,
+                    305
+                  ]
+                ],
+                "text": "LEVEL +3.60 m",
+                "score": 0.9908858079176682
+              },
+              {
+                "poly": [
+                  [
+                    120,
+                    382
+                  ],
+                  [
+                    312,
+                    386
+                  ],
+                  [
+                    310,
+                    451
+                  ],
+                  [
+                    119,
+                    448
+                  ]
+                ],
+                "text": "1.20 m",
+                "score": 0.959274580081304
+              },
+              {
+                "poly": [
+                  [
+                    853,
+                    396
+                  ],
+                  [
+                    1423,
+                    399
+                  ],
+                  [
+                    1423,
+                    447
+                  ],
+                  [
+                    853,
+                    444
+                  ]
+                ],
+                "text": "WALL THICKNESS 230 mm",
+                "score": 0.9851213267871312
+              },
+              {
+                "poly": [
+                  [
+                    121,
+                    525
+                  ],
+                  [
+                    311,
+                    529
+                  ],
+                  [
+                    310,
+                    592
+                  ],
+                  [
+                    120,
+                    588
+                  ]
+                ],
+                "text": "0.75 m",
+                "score": 0.9754567344983419
+              },
+              {
+                "poly": [
+                  [
+                    853,
+                    537
+                  ],
+                  [
+                    1454,
+                    539
+                  ],
+                  [
+                    1453,
+                    587
+                  ],
+                  [
+                    853,
+                    585
+                  ]
+                ],
+                "text": "CHECK DIMENSION 999.99 mm",
+                "score": 0.948183331489563
+              }
+            ],
+            "accuracy": {
+              "elapsedMs": 1052,
+              "rssBytes": null,
+              "text": "4500 mm\nUNITS: MILLIMETRES\n3.25 m\nLEVEL +3.60 m\n1.20 m\nWALL THICKNESS 230 mm\n0.75 m\nCHECK DIMENSION 999.99 mm",
+              "tokenRecall": {
+                "matched": 21,
+                "expected": 21,
+                "rate": 1
+              },
+              "lineExactRate": {
+                "matched": 8,
+                "expected": 8,
+                "rate": 1
+              },
+              "averageConfidence": null
+            },
+            "averageScore": 0.9605018300573104
+          },
+          "rotated-0": {
+            "elapsedMs": 409.1000000014901,
+            "metrics": {
+              "detMs": 296.59999999403954,
+              "recMs": 110.20000000298023,
+              "totalMs": 409.1000000014901,
+              "detectedBoxes": 3,
+              "recognizedCount": 3
+            },
+            "runtime": {
+              "requestedBackend": "wasm",
+              "detProvider": "wasm",
+              "recProvider": "wasm",
+              "webgpuAvailable": false
+            },
+            "image": {
+              "width": 1200,
+              "height": 800
+            },
+            "items": [
+              {
+                "poly": [
+                  [
+                    184,
+                    285
+                  ],
+                  [
+                    519,
+                    285
+                  ],
+                  [
+                    519,
+                    347
+                  ],
+                  [
+                    184,
+                    347
+                  ]
+                ],
+                "text": "STOREY 02",
+                "score": 0.9934365484449599
+              },
+              {
+                "poly": [
+                  [
+                    179,
+                    394
+                  ],
+                  [
+                    380,
+                    396
+                  ],
+                  [
+                    379,
+                    461
+                  ],
+                  [
+                    178,
+                    459
+                  ]
+                ],
+                "text": "2.75 m",
+                "score": 0.9916437963644663
+              },
+              {
+                "poly": [
+                  [
+                    183,
+                    505
+                  ],
+                  [
+                    405,
+                    505
+                  ],
+                  [
+                    405,
+                    568
+                  ],
+                  [
+                    183,
+                    568
+                  ]
+                ],
+                "text": "NORTH",
+                "score": 0.9989316463470459
+              }
+            ],
+            "accuracy": {
+              "elapsedMs": 409,
+              "rssBytes": null,
+              "text": "STOREY 02\n2.75 m\nNORTH",
+              "tokenRecall": {
+                "matched": 5,
+                "expected": 5,
+                "rate": 1
+              },
+              "lineExactRate": {
+                "matched": 3,
+                "expected": 3,
+                "rate": 1
+              },
+              "averageConfidence": null
+            },
+            "averageScore": 0.9946706637188241
+          },
+          "rotated-90": {
+            "elapsedMs": 408.40000000596046,
+            "metrics": {
+              "detMs": 296.1000000014901,
+              "recMs": 109.80000000447035,
+              "totalMs": 408.40000000596046,
+              "detectedBoxes": 3,
+              "recognizedCount": 3
+            },
+            "runtime": {
+              "requestedBackend": "wasm",
+              "detProvider": "wasm",
+              "recProvider": "wasm",
+              "webgpuAvailable": false
+            },
+            "image": {
+              "width": 1200,
+              "height": 800
+            },
+            "items": [
+              {
+                "poly": [
+                  [
+                    446,
+                    0
+                  ],
+                  [
+                    513,
+                    0
+                  ],
+                  [
+                    513,
+                    203
+                  ],
+                  [
+                    446,
+                    203
+                  ]
+                ],
+                "text": "JORTH",
+                "score": 0.9604636311531067
+              },
+              {
+                "poly": [
+                  [
+                    551,
+                    0
+                  ],
+                  [
+                    628,
+                    0
+                  ],
+                  [
+                    624,
+                    185
+                  ],
+                  [
+                    547,
+                    184
+                  ]
+                ],
+                "text": "!.75 m",
+                "score": 0.8664391736189524
+              },
+              {
+                "poly": [
+                  [
+                    662,
+                    0
+                  ],
+                  [
+                    737,
+                    0
+                  ],
+                  [
+                    737,
+                    323
+                  ],
+                  [
+                    662,
+                    323
+                  ]
+                ],
+                "text": "3TOREY 02",
+                "score": 0.9013601872656081
+              }
+            ],
+            "accuracy": {
+              "elapsedMs": 408,
+              "rssBytes": null,
+              "text": "JORTH\n!.75 m\n3TOREY 02",
+              "tokenRecall": {
+                "matched": 2,
+                "expected": 5,
+                "rate": 0.4
+              },
+              "lineExactRate": {
+                "matched": 0,
+                "expected": 3,
+                "rate": 0
+              },
+              "averageConfidence": null
+            },
+            "averageScore": 0.909420997345889
+          },
+          "rotated-180": {
+            "elapsedMs": 408.59999999403954,
+            "metrics": {
+              "detMs": 297.20000000298023,
+              "recMs": 109.20000000298023,
+              "totalMs": 408.59999999403954,
+              "detectedBoxes": 3,
+              "recognizedCount": 2
+            },
+            "runtime": {
+              "requestedBackend": "wasm",
+              "detProvider": "wasm",
+              "recProvider": "wasm",
+              "webgpuAvailable": false
+            },
+            "image": {
+              "width": 1200,
+              "height": 800
+            },
+            "items": [
+              {
+                "poly": [
+                  [
+                    813,
+                    247
+                  ],
+                  [
+                    1033,
+                    247
+                  ],
+                  [
+                    1033,
+                    310
+                  ],
+                  [
+                    813,
+                    310
+                  ]
+                ],
+                "text": "HLYON",
+                "score": 0.7835214316844941
+              },
+              {
+                "poly": [
+                  [
+                    835,
+                    350
+                  ],
+                  [
+                    1036,
+                    358
+                  ],
+                  [
+                    1034,
+                    422
+                  ],
+                  [
+                    833,
+                    414
+                  ]
+                ],
+                "text": "wS",
+                "score": 0.39347459375858307
+              }
+            ],
+            "accuracy": {
+              "elapsedMs": 409,
+              "rssBytes": null,
+              "text": "HLYON\nwS",
+              "tokenRecall": {
+                "matched": 0,
+                "expected": 5,
+                "rate": 0
+              },
+              "lineExactRate": {
+                "matched": 0,
+                "expected": 3,
+                "rate": 0
+              },
+              "averageConfidence": null
+            },
+            "averageScore": 0.5884980127215386
+          },
+          "rotated-270": {
+            "elapsedMs": 407,
+            "metrics": {
+              "detMs": 295,
+              "recMs": 109.19999999552965,
+              "totalMs": 407,
+              "detectedBoxes": 3,
+              "recognizedCount": 2
+            },
+            "runtime": {
+              "requestedBackend": "wasm",
+              "detProvider": "wasm",
+              "recProvider": "wasm",
+              "webgpuAvailable": false
+            },
+            "image": {
+              "width": 1200,
+              "height": 800
+            },
+            "items": [
+              {
+                "poly": [
+                  [
+                    700,
+                    604
+                  ],
+                  [
+                    775,
+                    604
+                  ],
+                  [
+                    775,
+                    800
+                  ],
+                  [
+                    700,
+                    800
+                  ]
+                ],
+                "text": "HLYOI",
+                "score": 0.3952601820230484
+              },
+              {
+                "poly": [
+                  [
+                    593,
+                    623
+                  ],
+                  [
+                    670,
+                    626
+                  ],
+                  [
+                    665,
+                    798
+                  ],
+                  [
+                    588,
+                    795
+                  ]
+                ],
+                "text": "wSL'",
+                "score": 0.5615900680422783
+              }
+            ],
+            "accuracy": {
+              "elapsedMs": 407,
+              "rssBytes": null,
+              "text": "HLYOI\nwSL'",
+              "tokenRecall": {
+                "matched": 0,
+                "expected": 5,
+                "rate": 0
+              },
+              "lineExactRate": {
+                "matched": 0,
+                "expected": 3,
+                "rate": 0
+              },
+              "averageConfidence": null
+            },
+            "averageScore": 0.4784251250326633
+          },
+          "large-sheet": {
+            "elapsedMs": 7088.20000000298,
+            "metrics": {
+              "detMs": 3968.2000000029802,
+              "recMs": 3082.1999999955297,
+              "totalMs": 7088.20000000298,
+              "detectedBoxes": 50,
+              "recognizedCount": 50
+            },
+            "runtime": {
+              "requestedBackend": "wasm",
+              "detProvider": "wasm",
+              "recProvider": "wasm",
+              "webgpuAvailable": false
+            },
+            "image": {
+              "width": 4000,
+              "height": 3000
+            },
+            "items": [
+              {
+                "poly": [
+                  [
+                    140,
+                    79
+                  ],
+                  [
+                    1168,
+                    77
+                  ],
+                  [
+                    1168,
+                    148
+                  ],
+                  [
+                    140,
+                    150
+                  ]
+                ],
+                "text": "LARGE SHEeT OCR BENCHMARK",
+                "score": 0.8548703169822693
+              },
+              {
+                "poly": [
+                  [
+                    144,
+                    207
+                  ],
+                  [
+                    652,
+                    207
+                  ],
+                  [
+                    652,
+                    254
+                  ],
+                  [
+                    144,
+                    254
+                  ]
+                ],
+                "text": "STOREY: THIRD FLOOR",
+                "score": 0.9562183085240816
+              },
+              {
+                "poly": [
+                  [
+                    144,
+                    495
+                  ],
+                  [
+                    561,
+                    493
+                  ],
+                  [
+                    561,
+                    533
+                  ],
+                  [
+                    144,
+                    535
+                  ]
+                ],
+                "text": "ROOM 01 AREA 8.25 m2",
+                "score": 0.961551508307457
+              },
+              {
+                "poly": [
+                  [
+                    1105,
+                    496
+                  ],
+                  [
+                    1540,
+                    496
+                  ],
+                  [
+                    1540,
+                    533
+                  ],
+                  [
+                    1105,
+                    533
+                  ]
+                ],
+                "text": "ROOM 13 AREA 12.69 m2",
+                "score": 0.9674455268042428
+              },
+              {
+                "poly": [
+                  [
+                    2063,
+                    495
+                  ],
+                  [
+                    2501,
+                    493
+                  ],
+                  [
+                    2501,
+                    533
+                  ],
+                  [
+                    2063,
+                    535
+                  ]
+                ],
+                "text": "ROOM 25 AREA 17.13 m2",
+                "score": 0.9710927406946818
+              },
+              {
+                "poly": [
+                  [
+                    3023,
+                    495
+                  ],
+                  [
+                    3460,
+                    495
+                  ],
+                  [
+                    3460,
+                    535
+                  ],
+                  [
+                    3023,
+                    535
+                  ]
+                ],
+                "text": "ROOM 37 AREA 21.57 m2",
+                "score": 0.9871931672096252
+              },
+              {
+                "poly": [
+                  [
+                    144,
+                    663
+                  ],
+                  [
+                    561,
+                    663
+                  ],
+                  [
+                    561,
+                    703
+                  ],
+                  [
+                    144,
+                    703
+                  ]
+                ],
+                "text": "ROOM 02 AREA 8.62 m2",
+                "score": 0.9805267035961152
+              },
+              {
+                "poly": [
+                  [
+                    1105,
+                    664
+                  ],
+                  [
+                    1542,
+                    664
+                  ],
+                  [
+                    1542,
+                    704
+                  ],
+                  [
+                    1105,
+                    704
+                  ]
+                ],
+                "text": "ROOM 14 AREA 13.06 m2",
+                "score": 0.9685280351411729
+              },
+              {
+                "poly": [
+                  [
+                    2064,
+                    662
+                  ],
+                  [
+                    2502,
+                    664
+                  ],
+                  [
+                    2502,
+                    705
+                  ],
+                  [
+                    2064,
+                    703
+                  ]
+                ],
+                "text": "ROOM 26 AREA 17.50 m2",
+                "score": 0.9732132355372111
+              },
+              {
+                "poly": [
+                  [
+                    3025,
+                    664
+                  ],
+                  [
+                    3462,
+                    664
+                  ],
+                  [
+                    3462,
+                    704
+                  ],
+                  [
+                    3025,
+                    704
+                  ]
+                ],
+                "text": "ROOM 38 AREA 21.94 m2",
+                "score": 0.9723234261785235
+              },
+              {
+                "poly": [
+                  [
+                    145,
+                    834
+                  ],
+                  [
+                    561,
+                    834
+                  ],
+                  [
+                    561,
+                    875
+                  ],
+                  [
+                    145,
+                    875
+                  ]
+                ],
+                "text": "ROOM 03 AREA 8.99 m2",
+                "score": 0.9667124956846237
+              },
+              {
+                "poly": [
+                  [
+                    1105,
+                    835
+                  ],
+                  [
+                    1541,
+                    835
+                  ],
+                  [
+                    1541,
+                    875
+                  ],
+                  [
+                    1105,
+                    875
+                  ]
+                ],
+                "text": "ROOM 15 AREA 13.43 m2",
+                "score": 0.9667808271589733
+              },
+              {
+                "poly": [
+                  [
+                    2065,
+                    835
+                  ],
+                  [
+                    2501,
+                    835
+                  ],
+                  [
+                    2501,
+                    875
+                  ],
+                  [
+                    2065,
+                    875
+                  ]
+                ],
+                "text": "ROOM 27 AREA 17.87 m2",
+                "score": 0.980639710312798
+              },
+              {
+                "poly": [
+                  [
+                    3025,
+                    834
+                  ],
+                  [
+                    3460,
+                    834
+                  ],
+                  [
+                    3460,
+                    875
+                  ],
+                  [
+                    3025,
+                    875
+                  ]
+                ],
+                "text": "ROOM 39 AREA 22.31 m2",
+                "score": 0.9747835738318307
+              },
+              {
+                "poly": [
+                  [
+                    145,
+                    1006
+                  ],
+                  [
+                    561,
+                    1006
+                  ],
+                  [
+                    561,
+                    1043
+                  ],
+                  [
+                    145,
+                    1043
+                  ]
+                ],
+                "text": "ROOM 04 AREA 9.36 m2",
+                "score": 0.9539218127727509
+              },
+              {
+                "poly": [
+                  [
+                    1105,
+                    1006
+                  ],
+                  [
+                    1540,
+                    1006
+                  ],
+                  [
+                    1540,
+                    1043
+                  ],
+                  [
+                    1105,
+                    1043
+                  ]
+                ],
+                "text": "ROOM 16 AREA 13.80 m2",
+                "score": 0.9673091911134266
+              },
+              {
+                "poly": [
+                  [
+                    2066,
+                    1006
+                  ],
+                  [
+                    2501,
+                    1006
+                  ],
+                  [
+                    2501,
+                    1043
+                  ],
+                  [
+                    2066,
+                    1043
+                  ]
+                ],
+                "text": "ROOM 28 AREA 18.24 m2",
+                "score": 0.9809714953104655
+              },
+              {
+                "poly": [
+                  [
+                    3026,
+                    1006
+                  ],
+                  [
+                    3460,
+                    1006
+                  ],
+                  [
+                    3460,
+                    1043
+                  ],
+                  [
+                    3026,
+                    1043
+                  ]
+                ],
+                "text": "ROOM 40 AREA 22.68 m2",
+                "score": 0.9750206215041024
+              },
+              {
+                "poly": [
+                  [
+                    144,
+                    1172
+                  ],
+                  [
+                    561,
+                    1174
+                  ],
+                  [
+                    561,
+                    1215
+                  ],
+                  [
+                    144,
+                    1213
+                  ]
+                ],
+                "text": "ROOM 05 AREA 9.73 m2",
+                "score": 0.9660204708576202
+              },
+              {
+                "poly": [
+                  [
+                    1105,
+                    1174
+                  ],
+                  [
+                    1541,
+                    1174
+                  ],
+                  [
+                    1541,
+                    1215
+                  ],
+                  [
+                    1105,
+                    1215
+                  ]
+                ],
+                "text": "ROOM 17 AREA 14.17 m2",
+                "score": 0.9678604773112706
+              },
+              {
+                "poly": [
+                  [
+                    2065,
+                    1173
+                  ],
+                  [
+                    2500,
+                    1175
+                  ],
+                  [
+                    2500,
+                    1215
+                  ],
+                  [
+                    2065,
+                    1213
+                  ]
+                ],
+                "text": "ROOM 29 AREA 18.61 m2",
+                "score": 0.9660238339787438
+              },
+              {
+                "poly": [
+                  [
+                    3025,
+                    1174
+                  ],
+                  [
+                    3461,
+                    1174
+                  ],
+                  [
+                    3461,
+                    1215
+                  ],
+                  [
+                    3025,
+                    1215
+                  ]
+                ],
+                "text": "ROOM 41 AREA 23.05 m2",
+                "score": 0.9615160084906078
+              },
+              {
+                "poly": [
+                  [
+                    145,
+                    1344
+                  ],
+                  [
+                    580,
+                    1344
+                  ],
+                  [
+                    580,
+                    1384
+                  ],
+                  [
+                    145,
+                    1384
+                  ]
+                ],
+                "text": "ROOM 06 AREA 10.10 m2",
+                "score": 0.9505444452876136
+              },
+              {
+                "poly": [
+                  [
+                    1105,
+                    1344
+                  ],
+                  [
+                    1540,
+                    1344
+                  ],
+                  [
+                    1540,
+                    1384
+                  ],
+                  [
+                    1105,
+                    1384
+                  ]
+                ],
+                "text": "ROOM 18 AREA 14.54 m2",
+                "score": 0.9842988508088248
+              },
+              {
+                "poly": [
+                  [
+                    2065,
+                    1344
+                  ],
+                  [
+                    2500,
+                    1344
+                  ],
+                  [
+                    2500,
+                    1384
+                  ],
+                  [
+                    2065,
+                    1384
+                  ]
+                ],
+                "text": "ROOM 30 AREA 18.98 m2",
+                "score": 0.9775548719224476
+              },
+              {
+                "poly": [
+                  [
+                    3025,
+                    1344
+                  ],
+                  [
+                    3460,
+                    1344
+                  ],
+                  [
+                    3460,
+                    1384
+                  ],
+                  [
+                    3025,
+                    1384
+                  ]
+                ],
+                "text": "ROOM 42 AREA 23.42 m2",
+                "score": 0.9673546893256051
+              },
+              {
+                "poly": [
+                  [
+                    145,
+                    1516
+                  ],
+                  [
+                    581,
+                    1516
+                  ],
+                  [
+                    581,
+                    1553
+                  ],
+                  [
+                    145,
+                    1553
+                  ]
+                ],
+                "text": "ROOM 07 AREA 10.47 m2",
+                "score": 0.9640580727940514
+              },
+              {
+                "poly": [
+                  [
+                    1104,
+                    1514
+                  ],
+                  [
+                    1541,
+                    1516
+                  ],
+                  [
+                    1541,
+                    1554
+                  ],
+                  [
+                    1104,
+                    1552
+                  ]
+                ],
+                "text": "ROOM 19 AREA 14.91 m2",
+                "score": 0.9305843994730995
+              },
+              {
+                "poly": [
+                  [
+                    2065,
+                    1516
+                  ],
+                  [
+                    2501,
+                    1516
+                  ],
+                  [
+                    2501,
+                    1553
+                  ],
+                  [
+                    2065,
+                    1553
+                  ]
+                ],
+                "text": "ROOM 31 AREA 19.35 m2",
+                "score": 0.9636818227313814
+              },
+              {
+                "poly": [
+                  [
+                    3025,
+                    1514
+                  ],
+                  [
+                    3461,
+                    1516
+                  ],
+                  [
+                    3461,
+                    1554
+                  ],
+                  [
+                    3025,
+                    1552
+                  ]
+                ],
+                "text": "ROOM 43 AREA 23.79 m2",
+                "score": 0.9712191876910982
+              },
+              {
+                "poly": [
+                  [
+                    145,
+                    1684
+                  ],
+                  [
+                    581,
+                    1684
+                  ],
+                  [
+                    581,
+                    1724
+                  ],
+                  [
+                    145,
+                    1724
+                  ]
+                ],
+                "text": "ROOM 08 AREA 10.84 m2",
+                "score": 0.9659147290956407
+              },
+              {
+                "poly": [
+                  [
+                    1105,
+                    1684
+                  ],
+                  [
+                    1541,
+                    1684
+                  ],
+                  [
+                    1541,
+                    1724
+                  ],
+                  [
+                    1105,
+                    1724
+                  ]
+                ],
+                "text": "ROOM 20 AREA 15.28 m2",
+                "score": 0.9811327343895322
+              },
+              {
+                "poly": [
+                  [
+                    2065,
+                    1684
+                  ],
+                  [
+                    2501,
+                    1684
+                  ],
+                  [
+                    2501,
+                    1724
+                  ],
+                  [
+                    2065,
+                    1724
+                  ]
+                ],
+                "text": "ROOM 32 AREA 19.72 m2",
+                "score": 0.9616453363781884
+              },
+              {
+                "poly": [
+                  [
+                    3025,
+                    1684
+                  ],
+                  [
+                    3461,
+                    1684
+                  ],
+                  [
+                    3461,
+                    1724
+                  ],
+                  [
+                    3025,
+                    1724
+                  ]
+                ],
+                "text": "ROOM 44 AREA 24.16 m2",
+                "score": 0.974672155720847
+              },
+              {
+                "poly": [
+                  [
+                    145,
+                    1854
+                  ],
+                  [
+                    579,
+                    1854
+                  ],
+                  [
+                    579,
+                    1895
+                  ],
+                  [
+                    145,
+                    1895
+                  ]
+                ],
+                "text": "ROOM 09 AREA 11.21 m2",
+                "score": 0.9756120358194623
+              },
+              {
+                "poly": [
+                  [
+                    1104,
+                    1854
+                  ],
+                  [
+                    1541,
+                    1852
+                  ],
+                  [
+                    1541,
+                    1893
+                  ],
+                  [
+                    1104,
+                    1895
+                  ]
+                ],
+                "text": "ROOM 21 AREA 15.65 m2",
+                "score": 0.9657788418588185
+              },
+              {
+                "poly": [
+                  [
+                    2065,
+                    1854
+                  ],
+                  [
+                    2500,
+                    1854
+                  ],
+                  [
+                    2500,
+                    1895
+                  ],
+                  [
+                    2065,
+                    1895
+                  ]
+                ],
+                "text": "ROOM 33 AREA 20.09 m2",
+                "score": 0.9733016661235264
+              },
+              {
+                "poly": [
+                  [
+                    3025,
+                    1854
+                  ],
+                  [
+                    3461,
+                    1854
+                  ],
+                  [
+                    3461,
+                    1895
+                  ],
+                  [
+                    3025,
+                    1895
+                  ]
+                ],
+                "text": "ROOM 45 AREA 24.53 m2",
+                "score": 0.9582655543372744
+              },
+              {
+                "poly": [
+                  [
+                    145,
+                    2025
+                  ],
+                  [
+                    580,
+                    2025
+                  ],
+                  [
+                    580,
+                    2064
+                  ],
+                  [
+                    145,
+                    2064
+                  ]
+                ],
+                "text": "ROOM 10 AREA 11.58 m2",
+                "score": 0.9733635669662839
+              },
+              {
+                "poly": [
+                  [
+                    1105,
+                    2025
+                  ],
+                  [
+                    1541,
+                    2025
+                  ],
+                  [
+                    1541,
+                    2064
+                  ],
+                  [
+                    1105,
+                    2064
+                  ]
+                ],
+                "text": "ROOM 22 AREA 16.02 m2",
+                "score": 0.9807237557002476
+              },
+              {
+                "poly": [
+                  [
+                    2065,
+                    2025
+                  ],
+                  [
+                    2501,
+                    2025
+                  ],
+                  [
+                    2501,
+                    2064
+                  ],
+                  [
+                    2065,
+                    2064
+                  ]
+                ],
+                "text": "ROOM 34 AREA 20.46 m2",
+                "score": 0.98099228313991
+              },
+              {
+                "poly": [
+                  [
+                    3025,
+                    2025
+                  ],
+                  [
+                    3461,
+                    2025
+                  ],
+                  [
+                    3461,
+                    2064
+                  ],
+                  [
+                    3025,
+                    2064
+                  ]
+                ],
+                "text": "ROOM 46 AREA 24.90 m2",
+                "score": 0.9777334190550304
+              },
+              {
+                "poly": [
+                  [
+                    144,
+                    2192
+                  ],
+                  [
+                    578,
+                    2194
+                  ],
+                  [
+                    578,
+                    2235
+                  ],
+                  [
+                    144,
+                    2233
+                  ]
+                ],
+                "text": "ROOM 11 AREA 11.95 m2",
+                "score": 0.9700479053315663
+              },
+              {
+                "poly": [
+                  [
+                    1104,
+                    2192
+                  ],
+                  [
+                    1541,
+                    2194
+                  ],
+                  [
+                    1541,
+                    2235
+                  ],
+                  [
+                    1104,
+                    2233
+                  ]
+                ],
+                "text": "ROOM 23 AREA 16.39 m2",
+                "score": 0.9784728827930632
+              },
+              {
+                "poly": [
+                  [
+                    2064,
+                    2192
+                  ],
+                  [
+                    2501,
+                    2194
+                  ],
+                  [
+                    2501,
+                    2235
+                  ],
+                  [
+                    2064,
+                    2233
+                  ]
+                ],
+                "text": "ROOM 35 AREA 20.83 m2",
+                "score": 0.9861883549463182
+              },
+              {
+                "poly": [
+                  [
+                    3024,
+                    2192
+                  ],
+                  [
+                    3461,
+                    2194
+                  ],
+                  [
+                    3461,
+                    2235
+                  ],
+                  [
+                    3024,
+                    2233
+                  ]
+                ],
+                "text": "ROOM 47 AREA 25.27 m2",
+                "score": 0.9558749113764081
+              },
+              {
+                "poly": [
+                  [
+                    145,
+                    2365
+                  ],
+                  [
+                    581,
+                    2365
+                  ],
+                  [
+                    581,
+                    2405
+                  ],
+                  [
+                    145,
+                    2405
+                  ]
+                ],
+                "text": "ROOM 12 AREA 12.32 m2",
+                "score": 0.9762152546928042
+              },
+              {
+                "poly": [
+                  [
+                    1105,
+                    2365
+                  ],
+                  [
+                    1541,
+                    2365
+                  ],
+                  [
+                    1541,
+                    2405
+                  ],
+                  [
+                    1105,
+                    2405
+                  ]
+                ],
+                "text": "ROOM 24 AREA 16.76 m2",
+                "score": 0.9725157675288972
+              },
+              {
+                "poly": [
+                  [
+                    2065,
+                    2365
+                  ],
+                  [
+                    2501,
+                    2365
+                  ],
+                  [
+                    2501,
+                    2405
+                  ],
+                  [
+                    2065,
+                    2405
+                  ]
+                ],
+                "text": "ROOM 36 AREA 21.20 m2",
+                "score": 0.9782876287187848
+              },
+              {
+                "poly": [
+                  [
+                    3025,
+                    2365
+                  ],
+                  [
+                    3461,
+                    2365
+                  ],
+                  [
+                    3461,
+                    2405
+                  ],
+                  [
+                    3025,
+                    2405
+                  ]
+                ],
+                "text": "ROOM 48 AREA 25.64 m2",
+                "score": 0.9696132455553327
+              }
+            ],
+            "accuracy": {
+              "elapsedMs": 7088,
+              "rssBytes": null,
+              "text": "LARGE SHEeT OCR BENCHMARK\nSTOREY: THIRD FLOOR\nROOM 01 AREA 8.25 m2\nROOM 13 AREA 12.69 m2\nROOM 25 AREA 17.13 m2\nROOM 37 AREA 21.57 m2\nROOM 02 AREA 8.62 m2\nROOM 14 AREA 13.06 m2\nROOM 26 AREA 17.50 m2\nROOM 38 AREA 21.94 m2\nROOM 03 AREA 8.99 m2\nROOM 15 AREA 13.43 m2\nROOM 27 AREA 17.87 m2\nROOM 39 AREA 22.31 m2\nROOM 04 AREA 9.36 m2\nROOM 16 AREA 13.80 m2\nROOM 28 AREA 18.24 m2\nROOM 40 AREA 22.68 m2\nROOM 05 AREA 9.73 m2\nROOM 17 AREA 14.17 m2\nROOM 29 AREA 18.61 m2\nROOM 41 AREA 23.05 m2\nROOM 06 AREA 10.10 m2\nROOM 18 AREA 14.54 m2\nROOM 30 AREA 18.98 m2\nROOM 42 AREA 23.42 m2\nROOM 07 AREA 10.47 m2\nROOM 19 AREA 14.91 m2\nROOM 31 AREA 19.35 m2\nROOM 43 AREA 23.79 m2\nROOM 08 AREA 10.84 m2\nROOM 20 AREA 15.28 m2\nROOM 32 AREA 19.72 m2\nROOM 44 AREA 24.16 m2\nROOM 09 AREA 11.21 m2\nROOM 21 AREA 15.65 m2\nROOM 33 AREA 20.09 m2\nROOM 45 AREA 24.53 m2\nROOM 10 AREA 11.58 m2\nROOM 22 AREA 16.02 m2\nROOM 34 AREA 20.46 m2\nROOM 46 AREA 24.90 m2\nROOM 11 AREA 11.95 m2\nROOM 23 AREA 16.39 m2\nROOM 35 AREA 20.83 m2\nROOM 47 AREA 25.27 m2\nROOM 12 AREA 12.32 m2\nROOM 24 AREA 16.76 m2\nROOM 36 AREA 21.20 m2\nROOM 48 AREA 25.64 m2",
+              "tokenRecall": {
+                "matched": 247,
+                "expected": 247,
+                "rate": 1
+              },
+              "lineExactRate": {
+                "matched": 50,
+                "expected": 50,
+                "rate": 1
+              },
+              "averageConfidence": null
+            },
+            "averageScore": 0.967723437137293
+          }
+        },
+        "memory": {
+          "usedBytes": 509557079,
+          "totalBytes": 515272351
+        }
+      },
+      "modelResponses": [
+        {
+          "url": "http://127.0.0.1:5173/.vite/deps/@paddleocr_paddleocr-js.js?v=8e4d9a91",
+          "status": 200,
+          "contentLength": "10898859",
+          "bytes": 10898859,
+          "sha256": "66436e836ec785b9c16c2534b8f19c41a2a1947069ec0eb38f765787b71b2fb1"
+        },
+        {
+          "url": "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_mobile_det_onnx_infer.tar",
+          "status": 200,
+          "contentLength": "4843520",
+          "bytes": 4843520,
+          "sha256": "781056046c9ed77a15c94681605db6a0f62317c2e9cce6931c71da2478d4bc30"
+        },
+        {
+          "url": "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_mobile_rec_onnx_infer.tar",
+          "status": 200,
+          "contentLength": "16701440",
+          "bodyError": "response.body: Protocol error (Network.getResponseBody): Request content was evicted from inspector cache\nResponse body is not available for a response that was navigated away from. Read response.body() before triggering any navigation.",
+          "bytes": 16701440,
+          "sha256": "f7e792bc836f36e7ef895ad47c426d75b0b75b1650caa6d63fe9418441ffba8c"
+        }
+      ],
+      "wallClockMs": 44781
+    }
+  }
+}
