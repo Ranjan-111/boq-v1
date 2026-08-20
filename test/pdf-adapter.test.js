@@ -78,7 +78,10 @@ test('PDF adapter normalizes native text transforms into page viewport space', a
   const { inspectPdf } = require('../src/ingestion/pdf');
   const pdf = require('node:fs').readFileSync(`${__dirname}/fixtures/vector-plan.pdf`);
   const page = (await inspectPdf(pdf, { filename: 'vector-plan.pdf' })).pages[0];
-  assert.deepEqual(page.nativeText[0].transform, [0, 12, -12, 0, 26, 10]);
+  // This fixture is rotated. The backend must use PDF.js's default viewport
+  // (the same flipped coordinate space as the browser preview), not the
+  // old dontFlip transform.
+  assert.deepEqual(page.nativeText[0].transform, [0, 12, 12, 0, 10, 10]);
   assert.deepEqual(page.nativeText[0].rawTransform, [12, 0, 0, 12, 10, 10]);
   assert.equal(page.nativeText[0].coordinateSpace, 'pdf');
 });

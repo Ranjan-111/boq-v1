@@ -29,7 +29,7 @@ test('operator browser flow uploads a clean DXF and renders its completed BOQ', 
   await page.getByRole('button', { name: 'Create processing run' }).click();
   await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes('measurement: running'));
   await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes('boq: running'));
-  await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes(': completed'));
+  await page.waitForFunction(() => document.querySelector('#run-summary strong')?.textContent.endsWith(': completed'));
   await page.waitForFunction(() => document.querySelectorAll('#boq-lines tr').length === 9);
   await page.waitForFunction(() => document.querySelector('#classification-review').textContent.includes('source objects classified'));
 
@@ -86,14 +86,44 @@ test('operator can inspect and configure a vector PDF before reviewing its BOQ',
   await page.close();
 });
 
-test('operator stops at the raster handoff for a mixed PDF and explains the blocked state', async () => {
+test('operator blocks a mixed PDF and explains why vector quantities cannot be omitted', async () => {
   const page = await browser.newPage();
   await page.goto(baseUrl);
   await page.locator('#drawing').setInputFiles({ name: 'mixed-plan.pdf', mimeType: 'application/pdf', buffer: await readFile(join(__dirname, 'fixtures', 'mixed-plan.pdf')) });
   await page.getByRole('button', { name: 'Create processing run' }).click();
-  await page.waitForFunction(() => document.querySelector('#message').textContent.match(/raster calibration|tracing/i));
+  await page.waitForFunction(() => document.querySelector('#message').textContent.match(/mixed|hybrid|vector quantities|raster regions/i));
   assert.equal(await page.locator('#pdf-setup').isHidden(), true);
   assert.equal(await page.locator('#boq-lines tr').count(), 0);
+  assert.match(await page.locator('#message').textContent(), /vector quantities and raster regions cannot be measured together/i);
+  await page.close();
+});
+
+test('operator calibrates and traces a PNG through the canvas workflow', async () => {
+  const page = await browser.newPage();
+  await page.goto(baseUrl);
+  const png = await readFile(join(__dirname, 'fixtures', 'raster-200x100.png'));
+  await page.locator('#drawing').setInputFiles({ name: 'raster-plan.png', mimeType: 'image/png', buffer: png });
+  await page.getByRole('button', { name: 'Create processing run' }).click();
+  await page.waitForFunction(() => document.querySelector('#raster-workflow').hidden === false && document.querySelector('#raster-status').textContent.includes('two points'));
+  const canvas = page.locator('#raster-canvas');
+  await canvas.click({ position: { x: 10, y: 10 } });
+  await canvas.click({ position: { x: 110, y: 10 } });
+  await page.locator('#raster-distance').fill('2');
+  await page.getByRole('button', { name: 'Confirm calibration' }).click();
+  await page.waitForFunction(() => document.querySelector('#raster-status').textContent.includes('at least three points'));
+  await canvas.click({ position: { x: 10, y: 10 } });
+  await canvas.click({ position: { x: 110, y: 10 } });
+  await canvas.click({ position: { x: 110, y: 60 } });
+  await canvas.click({ position: { x: 10, y: 60 } });
+  await page.getByRole('button', { name: 'Close traced region' }).click();
+  await page.waitForFunction(() => document.querySelector('#raster-regions').textContent.includes('HUMAN TRACED'));
+  assert.match(await page.locator('#raster-regions').textContent(), /HUMAN TRACED/);
+  const confirmRequest = page.waitForRequest((request) => request.url().includes('/confirm?'));
+  await page.getByRole('button', { name: 'Confirm region' }).click();
+  assert.match((await confirmRequest).url(), /expectedPageRevision=\d+.*expectedRegionRevision=\d+/);
+  await page.waitForFunction(() => document.querySelector('#run-summary strong')?.textContent.endsWith(': completed'));
+  assert.match(await page.locator('#boq-lines').textContent(), /Floor finish area/);
+  assert.match(await page.locator('#boq-lines').textContent(), /human-traced/);
   await page.close();
 });
 

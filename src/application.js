@@ -3,6 +3,8 @@ const { DXF_VERSIONS, inspectDxf, measureDxf, UNIT_DEFINITIONS, layerCategory, I
 const { FUSION_VERSION, canonical, digest, patternMatches, mappingSnapshot, fuseEvidence, groupClassificationConflicts } = require('./classification');
 const { asBytes, sniffContent } = require('./ingestion/sniff');
 const { inspectPdf, PDF_VERSIONS } = require('./ingestion/pdf');
+const { inspectRaster, RASTER_VERSIONS } = require('./ingestion/raster');
+const { LIMITS, LimitError } = require('./ingestion/limits');
 
 const VERSIONS = DXF_VERSIONS;
 const PROCESSING_STAGE_DELAY_MS = 150;
@@ -53,7 +55,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     if (building && building.projectId !== project?.id) throw new InputError('The building does not belong to the selected project.');
     if (storey && (!building || storey.buildingId !== building.id)) throw new InputError('The storey does not belong to the selected building.');
     const multiplier = Number(typicalMultiplier);
-    if (!Number.isInteger(multiplier) || multiplier < 1) throw new InputError('Typical-storey multiplier must be an explicit positive integer.');
+    if (!Number.isInteger(multiplier) || multiplier < 1 || multiplier > LIMITS.typicalMultiplierMax) throw new InputError(`Typical-storey multiplier must be an explicit integer between 1 and ${LIMITS.typicalMultiplierMax}.`);
     if (multiplier > 1 && !storey) throw new InputError('A typical-storey multiplier greater than one requires a storey assignment.');
     if (boqVersionId) {
       const boqVersion = boqVersions.get(boqVersionId);
@@ -196,7 +198,14 @@ function createApplication({ schedule = setTimeout } = {}) {
     if (sniffed.format === 'dwg' || /\.dwg$/i.test(filename || '')) {
       throw new InputError('DWG files are refused. Use a native DXF export from the authoring CAD application; no automatic conversion is performed.');
     }
-    if (!['dxf', 'pdf'].includes(sniffed.format)) throw new InputError('Unsupported drawing format. Submit a native DXF or born-digital PDF.');
+    if (!['dxf', 'pdf', 'png', 'jpeg'].includes(sniffed.format)) throw new InputError('Unsupported drawing format. Submit a native DXF, born-digital PDF, PNG, or JPEG.');
+    if (['png', 'jpeg'].includes(sniffed.format)) {
+      // Enforce cheap image resource limits at the upload boundary. Structural
+      // errors remain run-scoped so existing uploads receive an actionable
+      // failed-run record rather than being silently accepted.
+      try { inspectRaster(bytes, { format: sniffed.format }); }
+      catch (error) { if (error instanceof LimitError) throw error; }
+    }
 
     const explicitUnit = normalizeUnit(fallbackUnit);
     if (fallbackUnit !== undefined && fallbackUnit !== null && fallbackUnit !== '' && !explicitUnit) {
@@ -215,7 +224,7 @@ function createApplication({ schedule = setTimeout } = {}) {
       byteLength: bytes.length,
       mediaType: sniffed.mediaType,
       format: sniffed.format,
-      ingestVersion: sniffed.format === 'pdf' ? 'pdf-native-v1' : 'dxf-v1',
+      ingestVersion: sniffed.format === 'pdf' ? 'pdf-native-v1' : ['png', 'jpeg'].includes(sniffed.format) ? 'raster-native-v1' : 'dxf-v1',
       fallbackUnit: explicitUnit,
       ...assignment
     };
@@ -248,7 +257,7 @@ function createApplication({ schedule = setTimeout } = {}) {
       id: `run_${String(++runSequence).padStart(4, '0')}`,
       sequence: runSequence,
       sourceDocumentId,
-      versions: sourceDocument.format === 'pdf' ? { ...PDF_VERSIONS } : { ...VERSIONS },
+      versions: sourceDocument.format === 'pdf' ? { ...PDF_VERSIONS } : ['png', 'jpeg'].includes(sourceDocument.format) ? { ...RASTER_VERSIONS } : { ...VERSIONS },
       projectId: sourceDocument.projectId || null,
       buildingId: sourceDocument.buildingId || null,
       storeyId: sourceDocument.storeyId || null,
@@ -256,6 +265,7 @@ function createApplication({ schedule = setTimeout } = {}) {
       typicalMultiplier: sourceDocument.typicalMultiplier || 1,
       assignmentSnapshot: assignmentSnapshot(sourceDocument, resolvedBoqVersionId),
       mappingSnapshot: mappingSnapshot([...studioMappings.values()].filter((mapping) => !retiredMappingIds.has(mapping.id) && mappingEligibleForRun(mapping, sourceDocument))),
+      sourceProcessingRevision: (sourceDocument.processingRevision || 0) + 1,
       superseded: false,
       status: 'ingestion',
       stages: stageState('ingestion', 'running'),
@@ -263,10 +273,10 @@ function createApplication({ schedule = setTimeout } = {}) {
       boq: null,
       error: null,
       pages: [],
-      setup: sourceDocument.format === 'pdf'
-        ? { route: 'vector-pdf', status: 'pending', pages: [] }
+      setup: ['pdf', 'png', 'jpeg'].includes(sourceDocument.format)
+        ? { route: sourceDocument.format === 'pdf' ? 'vector-pdf' : 'raster', status: 'pending', pages: [] }
         : { route: 'dxf', status: 'not_required', pages: [] },
-      blockedReasons: sourceDocument.format === 'pdf' ? ['Inspect the PDF, confirm page scale, and select vector regions before measurement.'] : [],
+      blockedReasons: ['pdf', 'png', 'jpeg'].includes(sourceDocument.format) ? ['Inspect the source and complete the required page setup before measurement.'] : [],
       exportable: false
     };
     run.decisionContext = {
@@ -286,7 +296,9 @@ function createApplication({ schedule = setTimeout } = {}) {
       ontologyVersion: 'ontology-v1',
       mappingSnapshot: presentMappingSnapshot(run.mappingSnapshot)
     };
-    if (sourceDocument.format === 'pdf' && replaySetup?.status === 'ready') run.setupReplay = structuredClone(replaySetup);
+    sourceDocument.processingRevision = run.sourceProcessingRevision;
+    sourceDocument.currentProcessingRunId = run.id;
+    if (['pdf', 'png', 'jpeg'].includes(sourceDocument.format) && replaySetup?.status === 'ready') run.setupReplay = structuredClone(replaySetup);
     runs.set(run.id, run);
     schedule(() => advance(run), PROCESSING_STAGE_DELAY_MS);
     return presentRun(run, sourceDocument);
@@ -294,9 +306,23 @@ function createApplication({ schedule = setTimeout } = {}) {
 
   async function advance(run) {
     if (run.superseded) return;
+    const source = sourceDocuments.get(run.sourceDocumentId);
+    if ((['png', 'jpeg'].includes(source?.format) || (source?.format === 'pdf' && (source.rasterPages || run.setup.route === 'raster'))) && !isCurrentRasterRun(run, source)) {
+      run.superseded = true;
+      return;
+    }
     if (run.status === 'ingestion') {
       try {
         const document = sourceDocuments.get(run.sourceDocumentId);
+        if (['png', 'jpeg'].includes(document.format)) {
+          const inspection = inspectRaster(document.content, document);
+          run.versions = { ...inspection.versions };
+          run.pages = restoreRasterPages(document.rasterPages, inspection.pages);
+          persistRasterRun(run);
+          completeStage(run, 'ingestion');
+          if (enterRasterGate(run)) return;
+          return;
+        }
         if (document.format === 'pdf') {
           const inspection = await inspectPdf(document.content, document);
           run.versions = { ...inspection.versions };
@@ -304,12 +330,20 @@ function createApplication({ schedule = setTimeout } = {}) {
           const rasterPage = inspection.pages.find((page) => page.kind !== 'vector');
           run.inspection = { format: inspection.format, ingestVersion: inspection.ingestVersion, pageCount: inspection.pages.length, route: rasterPage ? 'raster' : 'native-vector' };
           if (rasterPage) {
+            const hasVectorPage = inspection.pages.some((page) => page.kind === 'vector');
+            const hasMixedPage = inspection.pages.some((page) => page.kind === 'mixed');
+            if (hasMixedPage || hasVectorPage) {
+              const error = new InputError('Mixed or hybrid PDFs are not supported: vector quantities and raster regions cannot be measured together. Re-export as a vector-only or image-only PDF so no quantities are omitted.');
+              error.code = 'mixed_pdf_unsupported';
+              error.stage = 'inspection';
+              error.sourcePageId = inspection.pages.find((page) => page.kind !== 'raster')?.sourcePageId || rasterPage.sourcePageId;
+              failRun(run, error, 'ingestion', document);
+              return;
+            }
             completeStage(run, 'ingestion');
-            const mixed = inspection.pages.some((page) => page.kind === 'mixed');
-            const blockedReason = mixed ? 'Mixed content retained native metadata; raster regions require calibration before tracing or measurement.' : 'Raster calibration is required before tracing or measurement.';
-            run.setup = { route: 'raster', status: 'pending', pages: inspection.pages.map((page) => ({ sourcePageId: page.sourcePageId, phase: 'calibration', revision: 0, blockedReasons: [page.kind === 'mixed' ? blockedReason : 'Raster calibration is required before tracing or measurement.'] })) };
-            run.status = 'awaiting_calibration';
-            run.blockedReasons = [mixed ? blockedReason : 'This PDF contains an image-only page. Complete raster calibration and tracing in the raster workflow before measurement.'];
+            run.pages = restoreRasterPages(document.rasterPages, inspection.pages);
+            persistRasterRun(run);
+            enterRasterGate(run);
             return;
           }
           run.setup.pages = inspection.pages.map((page) => ({ sourcePageId: page.sourcePageId, phase: 'scale', revision: 0, blockedReasons: ['Page scale and selected regions are required.'] }));
@@ -346,9 +380,11 @@ function createApplication({ schedule = setTimeout } = {}) {
       try {
         const document = sourceDocuments.get(run.sourceDocumentId);
         run.boq = document.format === 'pdf'
-          ? measurePdf(document, run)
-          : measureDxf(document, run.units, run.parsedDocument, { versions: VERSIONS, typicalMultiplier: run.typicalMultiplier });
-        if (document.format !== 'pdf') attachClassificationProvenance(run);
+          ? (run.setup.route === 'raster' ? measureRaster(document, run) : measurePdf(document, run))
+          : ['png', 'jpeg'].includes(document.format)
+            ? measureRaster(document, run)
+            : measureDxf(document, run.units, run.parsedDocument, { versions: VERSIONS, typicalMultiplier: run.typicalMultiplier });
+        if (document.format === 'dxf') attachClassificationProvenance(run);
         completeStage(run, 'measurement');
         run.status = 'boq';
         setStage(run, 'boq', 'running');
@@ -403,6 +439,173 @@ function createApplication({ schedule = setTimeout } = {}) {
     setStage(run, 'measurement', 'running');
     schedule(() => advance(run), PROCESSING_STAGE_DELAY_MS);
     return presentRun(run, sourceDocuments.get(run.sourceDocumentId));
+  }
+
+  function requireRasterPage(runId, pageIdValue) {
+    const run = runs.get(runId);
+    if (!run) throw new NotFoundError('Processing run not found.');
+    const page = run.pages.find((candidate) => candidate.sourcePageId === pageIdValue);
+    if (!page || page.route !== 'raster') throw new NotFoundError('Raster page not found.');
+    if (run.superseded || !isCurrentRasterRun(run, sourceDocuments.get(run.sourceDocumentId))) throw new ConflictError('This processing run is stale or superseded; reprocess the current source before changing raster state.');
+    return { run, page };
+  }
+
+  function persistRasterRun(run) {
+    const source = sourceDocuments.get(run.sourceDocumentId);
+    if (!isCurrentRasterRun(run, source)) throw new ConflictError('This raster run is stale; reprocess the current source before changing raster state.');
+    source.rasterPages = structuredClone(run.pages);
+  }
+
+  function enterRasterGate(run, customBlockedReason = null) {
+    const activePages = run.pages.filter((page) => page.route === 'raster');
+    if (!activePages.length) throw new InputError('The source has no raster pages available for calibration.');
+    const pageStates = activePages.map((page) => {
+      const activeRegions = page.regions.filter((region) => region.lifecycle !== 'deleted');
+      const calibrated = page.calibration?.status === 'confirmed';
+      const phase = !calibrated ? 'calibration' : activeRegions.length === 0 ? 'trace' : activeRegions.every((region) => region.lifecycle === 'confirmed') ? 'ready' : 'confirmation';
+      const blockedReasons = [];
+      if (!calibrated) blockedReasons.push(`Page ${page.pageNumber} requires two confirmed image-space calibration points and a positive real-world distance.`);
+      if (calibrated && activeRegions.length === 0) blockedReasons.push(`Page ${page.pageNumber} requires at least one traced region.`);
+      if (activeRegions.length > 0 && !activeRegions.every((region) => region.lifecycle === 'confirmed')) blockedReasons.push(`Page ${page.pageNumber} requires every active region to be classified and confirmed.`);
+      return { page, activeRegions, calibrated, phase, blockedReasons };
+    });
+    const allCalibrated = pageStates.every((state) => state.calibrated);
+    const allPagesReady = pageStates.every((state) => state.phase === 'ready');
+    run.setup = {
+      route: 'raster',
+      status: allPagesReady ? 'ready' : 'pending',
+      pages: pageStates.map(({ page, phase, blockedReasons }) => ({ sourcePageId: page.sourcePageId, phase, revision: page.revision ?? page.calibration?.revision ?? 0, blockedReasons }))
+    };
+    resetRasterOutput(run);
+    run.boq = null;
+    run.exportable = false;
+    if (!allCalibrated) {
+      run.status = 'awaiting_calibration';
+      run.blockedReasons = customBlockedReason ? [customBlockedReason] : pageStates.flatMap((state) => state.blockedReasons);
+    } else if (pageStates.some((state) => state.phase === 'trace')) {
+      run.status = 'awaiting_trace';
+      run.blockedReasons = pageStates.flatMap((state) => state.blockedReasons);
+    } else if (!allPagesReady) {
+      run.status = 'awaiting_confirmation';
+      run.blockedReasons = pageStates.flatMap((state) => state.blockedReasons);
+    } else {
+      run.status = 'measurement';
+      run.blockedReasons = [];
+      setStage(run, 'measurement', 'running');
+      schedule(() => advance(run), PROCESSING_STAGE_DELAY_MS);
+      return false;
+    }
+    return true;
+  }
+
+  function calibrateRasterPage(runId, pageIdValue, input) {
+    const { run, page } = requireRasterPage(runId, pageIdValue);
+    assertExpectedPageRevision(page, input);
+    const p0 = point(input?.p0);
+    const p1 = point(input?.p1);
+    const realDistance = Number(input?.realDistance);
+    const realUnit = String(input?.realUnit || '').trim().toLowerCase();
+    const unitMetres = { mm: 0.001, millimetres: 0.001, cm: 0.01, centimetres: 0.01, m: 1, metre: 1, metres: 1 }[realUnit];
+    if (!p0 || !p1 || !unitMetres || !Number.isFinite(realDistance) || realDistance <= 0) throw new InputError('Calibration requires two finite image points and a positive real-world distance/unit.');
+    const width = Number(page.pixelWidth || page.width); const height = Number(page.pixelHeight || page.height);
+    if (![p0, p1].every((candidate) => candidate.x >= 0 && candidate.y >= 0 && candidate.x <= width && candidate.y <= height)) throw new InputError('Calibration points must be finite and inside the image bounds.');
+    const pixelDistance = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+    const realDistanceMetres = realDistance * unitMetres;
+    const pixelsPerMetre = pixelDistance / realDistanceMetres;
+    const scaleSquared = pixelsPerMetre * pixelsPerMetre;
+    const inverseScaleSquared = 1 / scaleSquared;
+    if (!Number.isFinite(realDistanceMetres) || realDistanceMetres < LIMITS.rasterRealDistanceMin || realDistanceMetres > LIMITS.rasterRealDistanceMax || !Number.isFinite(pixelsPerMetre) || pixelsPerMetre < LIMITS.rasterPixelsPerMetreMin || pixelsPerMetre > LIMITS.rasterPixelsPerMetreMax || !Number.isFinite(scaleSquared) || scaleSquared <= 0 || !Number.isFinite(inverseScaleSquared) || inverseScaleSquared <= 0 || pixelDistance <= 0) throw new InputError(`Calibration must produce a finite scale with real distance between ${LIMITS.rasterRealDistanceMin}m and ${LIMITS.rasterRealDistanceMax}m.`);
+    const prior = page.calibration;
+    const revision = (prior?.revision || 0) + 1;
+    page.calibration = { status: 'confirmed', p0, p1, pixelDistance, realDistance, realUnit, realDistanceMetres, pixelsPerMetre, revision, source: 'operator-confirmed', correctedFrom: prior ? prior.revision : null, history: [...(prior?.history || []), ...(prior ? [stripHistory(prior)] : [])] };
+    page.revision = revision;
+    for (const region of page.regions) if (region.lifecycle === 'confirmed') {
+      region.history ||= [];
+      region.history.push({ revision: region.revision, points: structuredClone(region.points), category: region.category, lifecycle: region.lifecycle, reason: 'calibration-correction' });
+      region.lifecycle = 'traced';
+      region.revision += 1;
+      region.audit.push({ action: 'stale_after_calibration_correction', revision: region.revision, calibrationRevision: revision });
+    }
+    persistRasterRun(run);
+    enterRasterGate(run);
+    return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), page: presentRasterPage(page) };
+  }
+
+  function createRasterRegion(runId, pageIdValue, input) {
+    const { run, page } = requireRasterPage(runId, pageIdValue);
+    assertExpectedPageRevision(page, input, true);
+    if (page.calibration?.status !== 'confirmed') throw new ConflictError('Calibrate the raster page before tracing a region.');
+    if (page.regions.filter((region) => region.lifecycle !== 'deleted').length >= LIMITS.rasterRegions) throw new LimitError(`A raster page may contain at most ${LIMITS.rasterRegions} active regions.`, { limitName: 'rasterRegions', observed: page.regions.filter((region) => region.lifecycle !== 'deleted').length + 1, maximum: LIMITS.rasterRegions, stage: 'trace' });
+    const points = validatePolygon(input?.points, page);
+    const region = { id: `region_${String(page.regions.length + 1).padStart(4, '0')}`, points, category: normalizeRasterCategory(input?.category), lifecycle: 'traced', geometrySource: 'human-traced', revision: 1, history: [], audit: [{ action: 'created', revision: 1 }] };
+    page.regions.push(region);
+    persistRasterRun(run);
+    enterRasterGate(run);
+    return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), region: { ...region } };
+  }
+
+  function updateRasterRegion(runId, pageIdValue, regionId, input) {
+    const { run, page } = requireRasterPage(runId, pageIdValue);
+    const region = page.regions.find((candidate) => candidate.id === regionId && candidate.lifecycle !== 'deleted');
+    if (!region) throw new NotFoundError('Raster region not found.');
+    assertExpectedRevisions(page, region, input, true);
+    const prior = { revision: region.revision, points: structuredClone(region.points), category: region.category, lifecycle: region.lifecycle };
+    if (input?.points) region.points = validatePolygon(input.points, page);
+    if (input && Object.hasOwn(input, 'category')) region.category = normalizeRasterCategory(input.category);
+    region.lifecycle = 'traced'; region.revision += 1; region.audit.push({ action: 'updated', revision: region.revision });
+    region.history ||= []; region.history.push(prior);
+    persistRasterRun(run); enterRasterGate(run);
+    return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), region: { ...region } };
+  }
+
+  function deleteRasterRegion(runId, pageIdValue, regionId, input = {}) {
+    const { run, page } = requireRasterPage(runId, pageIdValue);
+    const region = page.regions.find((candidate) => candidate.id === regionId && candidate.lifecycle !== 'deleted');
+    if (!region) throw new NotFoundError('Raster region not found.');
+    assertExpectedRevisions(page, region, input, true);
+    region.history ||= [];
+    region.history.push({ revision: region.revision, points: structuredClone(region.points), category: region.category, lifecycle: region.lifecycle, reason: 'deleted' });
+    region.lifecycle = 'deleted'; region.revision += 1; region.deletedAt = new Date().toISOString(); region.tombstone = { id: region.id, deletedAt: region.deletedAt, revision: region.revision }; region.audit.push({ action: 'deleted', revision: region.revision });
+    persistRasterRun(run); enterRasterGate(run);
+    return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), region: { ...region } };
+  }
+
+  function confirmRasterRegion(runId, pageIdValue, regionId, input = {}) {
+    const { run, page } = requireRasterPage(runId, pageIdValue);
+    const region = page.regions.find((candidate) => candidate.id === regionId && candidate.lifecycle !== 'deleted');
+    if (!region) throw new NotFoundError('Raster region not found.');
+    assertExpectedRevisions(page, region, input, true);
+    if (!region.category) throw new InputError('Classify the raster region before confirmation.');
+    region.lifecycle = 'confirmed'; region.revision += 1; region.audit.push({ action: 'confirmed', revision: region.revision });
+    persistRasterRun(run); enterRasterGate(run);
+    return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), region: { ...region } };
+  }
+
+  function getRasterImage(runId, pageIdValue) {
+    const { run } = requireRasterPage(runId, pageIdValue);
+    const source = sourceDocuments.get(run.sourceDocumentId);
+    if (source.format === 'pdf') return { content: source.content, mediaType: source.mediaType, format: 'pdf' };
+    if (!['png', 'jpeg'].includes(source.format)) throw new InputError('Browser raster preview is available only for raster sources.');
+    return { content: source.content, mediaType: source.mediaType };
+  }
+
+  function assertExpectedPageRevision(page, input, legacy = false) {
+    const expected = input?.expectedPageRevision !== undefined ? input.expectedPageRevision : legacy ? input?.expectedRevision : undefined;
+    if (expected !== undefined && Number(expected) !== Number(page.revision ?? page.calibration?.revision ?? 0)) throw new ConflictError('Raster page state changed; reload before applying this edit.');
+  }
+
+  function assertExpectedRevisions(page, region, input, legacyRegion = false) {
+    assertExpectedPageRevision(page, input);
+    // expectedRevision is the legacy browser page token. New clients should
+    // send expectedRegionRevision explicitly so page and region revisions can
+    // be checked independently.
+    const expectedRegion = input?.expectedRegionRevision !== undefined ? input.expectedRegionRevision : legacyRegion ? input?.expectedRevision : undefined;
+    if (expectedRegion !== undefined && Number(expectedRegion) !== Number(region.revision)) throw new ConflictError('Raster region state changed; reload before applying this edit.');
+  }
+
+  function resetRasterOutput(run) {
+    run.boq = null; run.exportable = false;
+    for (const stage of run.stages) if (stage.name !== 'ingestion') stage.status = 'pending';
   }
 
   function reprocess(runId) {
@@ -520,7 +723,7 @@ function createApplication({ schedule = setTimeout } = {}) {
     return assignSourceDocument(sourceDocumentId, { projectId: storey.projectId, buildingId: storey.buildingId, storeyId, ...(typicalMultiplier === undefined && typicalStoreyMultiplier === undefined ? {} : { typicalMultiplier: typicalStoreyMultiplier ?? typicalMultiplier }) });
   }
 
-  return { createProject, createBuilding, createStorey, createBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, getRun, getClassifications, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+  return { createProject, createBuilding, createStorey, createBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
 }
 
 function classifyDocument(run, sourceDocument, entities) {
@@ -586,9 +789,9 @@ function measurePdf(sourceDocument, run) {
       const scaleSquared = scale ** 2;
       if (!Number.isFinite(scaleSquared) || scaleSquared <= Number.MIN_VALUE) throw new InputError(`Page ${page.pageNumber} scale cannot produce a finite area conversion.`);
       const rawQuantity = region.area / scaleSquared * run.typicalMultiplier;
-      if (!Number.isFinite(rawQuantity)) throw new InputError(`Page ${page.pageNumber} produced a non-finite quantity; choose a practical scale or simplify the source.`);
+      if (!Number.isFinite(rawQuantity) || rawQuantity <= 0) throw new InputError(`Page ${page.pageNumber} produced a non-finite or zero quantity; choose a practical scale or simplify the source.`);
       const quantity = Number(rawQuantity.toFixed(6));
-      if (!Number.isFinite(quantity)) throw new InputError(`Page ${page.pageNumber} produced a non-finite quantity; choose a practical scale or simplify the source.`);
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new InputError(`Page ${page.pageNumber} produced a non-finite or zero quantity; choose a practical scale or simplify the source.`);
       area = Number((area + quantity).toFixed(6));
       if (!Number.isFinite(area)) throw new InputError(`Page ${page.pageNumber} produced a non-finite total quantity; choose a practical scale or simplify the source.`);
       contributions.push({
@@ -631,6 +834,148 @@ function measurePdf(sourceDocument, run) {
   };
 }
 
+function point(value) {
+  const x = Number(value?.x); const y = Number(value?.y);
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
+function validatePolygon(points, page) {
+  if (!Array.isArray(points) || points.length < 3) throw new InputError(`A raster region requires at least three points.`);
+  if (points.length > LIMITS.rasterRegionPoints) throw new LimitError(`A raster region may contain at most ${LIMITS.rasterRegionPoints} points.`, { limitName: 'rasterRegionPoints', observed: points.length, maximum: LIMITS.rasterRegionPoints, stage: 'trace' });
+  const normalized = points.map(point);
+  const width = Number(page.pixelWidth || page.width); const height = Number(page.pixelHeight || page.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 || normalized.some((candidate) => !candidate || candidate.x < 0 || candidate.y < 0 || candidate.x > width || candidate.y > height)) throw new InputError('Raster region points must be finite and inside the image bounds.');
+  const keys = new Set(normalized.map((candidate) => candidate ? `${candidate.x}:${candidate.y}` : 'invalid'));
+  if (keys.size !== normalized.length) throw new InputError('Raster region boundary must not repeat points.');
+  const area = polygonArea(normalized);
+  if (!Number.isFinite(area) || area <= 0) throw new InputError('Raster region boundary must enclose a non-zero area.');
+  for (let i = 0; i < normalized.length; i += 1) for (let j = i + 1; j < normalized.length; j += 1) {
+    if (Math.abs(i - j) <= 1 || (i === 0 && j === normalized.length - 1)) continue;
+    if (segmentsIntersect(normalized[i], normalized[(i + 1) % normalized.length], normalized[j], normalized[(j + 1) % normalized.length])) throw new InputError('Raster region boundary must not self-intersect.');
+  }
+  return normalized;
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const cross = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const orientation = (value) => Math.abs(value) < Number.EPSILON ? 0 : value > 0 ? 1 : -1;
+  const abC = orientation(cross(a, b, c)); const abD = orientation(cross(a, b, d));
+  const cdA = orientation(cross(c, d, a)); const cdB = orientation(cross(c, d, b));
+  const onSegment = (p, q, r) => q.x >= Math.min(p.x, r.x) && q.x <= Math.max(p.x, r.x) && q.y >= Math.min(p.y, r.y) && q.y <= Math.max(p.y, r.y);
+  if (abC === 0 && onSegment(a, c, b)) return true;
+  if (abD === 0 && onSegment(a, d, b)) return true;
+  if (cdA === 0 && onSegment(c, a, d)) return true;
+  if (cdB === 0 && onSegment(c, b, d)) return true;
+  return abC !== abD && cdA !== cdB;
+}
+
+function polygonArea(points) {
+  return Math.abs(points.reduce((sum, current, index) => {
+    const next = points[(index + 1) % points.length];
+    return sum + current.x * next.y - next.x * current.y;
+  }, 0) / 2);
+}
+
+function stripHistory(value) {
+  const copy = structuredClone(value);
+  delete copy.history;
+  return copy;
+}
+
+function restoreRasterPages(storedPages = [], inspectedPages) {
+  return inspectedPages.map((page) => {
+    const stored = storedPages.find((candidate) => candidate.sourcePageId === page.sourcePageId);
+    const canonical = {
+      ...page,
+      pixelWidth: Number(page.pixelWidth || page.width),
+      pixelHeight: Number(page.pixelHeight || page.height),
+      coordinateSpace: page.kind === 'mixed' || page.kind === 'raster' ? 'image' : page.coordinateSpace,
+      sourceTransform: page.sourceTransform || page.transform,
+      rasterTransform: page.rasterTransform || [1, 0, 0, 1, 0, 0]
+    };
+    return stored
+      ? { ...canonical, ...structuredClone(stored), pixelWidth: canonical.pixelWidth, pixelHeight: canonical.pixelHeight, nativeText: page.nativeText, nativeRegionIds: page.nativeRegionIds, vectorRegions: page.vectorRegions, rasterRegions: page.rasterRegions, revision: stored.revision ?? stored.calibration?.revision ?? 0 }
+      : { ...canonical, calibration: null, regions: [], revision: 0 };
+  });
+}
+
+function presentRasterPage(page) {
+  return structuredClone(page);
+}
+
+function measureRaster(sourceDocument, run) {
+  let area = 0;
+  const contributions = [];
+  const byCategory = new Map();
+  if (!Number.isInteger(run.typicalMultiplier) || run.typicalMultiplier < 1 || run.typicalMultiplier > LIMITS.typicalMultiplierMax) throw new InputError('Raster measurement has an invalid typical-storey multiplier.');
+  for (const page of run.pages) {
+    if (page.route !== 'raster') continue;
+    const calibration = page.calibration;
+    if (!calibration || calibration.status !== 'confirmed') throw new InputError(`Raster page ${page.sourcePageId} is not calibrated.`);
+    const scaleSquared = calibration.pixelsPerMetre * calibration.pixelsPerMetre;
+    const inverseScaleSquared = 1 / scaleSquared;
+    if (!Number.isFinite(calibration.realDistanceMetres) || calibration.realDistanceMetres < LIMITS.rasterRealDistanceMin || calibration.realDistanceMetres > LIMITS.rasterRealDistanceMax || !Number.isFinite(calibration.pixelsPerMetre) || calibration.pixelsPerMetre < LIMITS.rasterPixelsPerMetreMin || calibration.pixelsPerMetre > LIMITS.rasterPixelsPerMetreMax || !Number.isFinite(scaleSquared) || scaleSquared <= 0 || !Number.isFinite(inverseScaleSquared) || inverseScaleSquared <= 0) throw new InputError(`Raster page ${page.sourcePageId} calibration cannot produce a finite, bounded area conversion.`);
+    let pageArea = 0;
+    for (const region of page.regions.filter((candidate) => candidate.lifecycle === 'confirmed')) {
+      const regionArea = polygonArea(region.points);
+      const rawQuantity = regionArea * inverseScaleSquared * run.typicalMultiplier;
+      if (!Number.isFinite(regionArea) || regionArea <= 0 || !Number.isFinite(rawQuantity) || rawQuantity <= 0) throw new InputError(`Raster region ${region.id} produced a non-finite or zero quantity.`);
+      const quantity = Number(rawQuantity.toFixed(6));
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new InputError(`Raster region ${region.id} produced a non-finite or zero quantity.`);
+      pageArea = Number((pageArea + quantity).toFixed(6));
+      if (!Number.isFinite(pageArea) || pageArea <= 0) throw new InputError(`Raster page ${page.sourcePageId} produced a non-finite aggregate area.`);
+      area = Number((area + quantity).toFixed(6));
+      if (!Number.isFinite(area) || area <= 0) throw new InputError('Raster source produced a non-finite aggregate area.');
+      const measurement = normalizeRasterCategory(region.category);
+      if (!measurement) throw new InputError(`Raster region ${region.id} must have a supported category before measurement.`);
+      const categoryArea = Number(((byCategory.get(measurement) || 0) + quantity).toFixed(6));
+      if (!Number.isFinite(categoryArea) || categoryArea <= 0) throw new InputError(`Raster category ${measurement} produced a non-finite aggregate area.`);
+      byCategory.set(measurement, categoryArea);
+      contributions.push({
+        sourceDocumentId: sourceDocument.id,
+        sourceDocumentVersion: sourceDocument.version,
+        contentSha256: sourceDocument.contentSha256,
+        processingRunId: run.id,
+        sourcePageId: page.sourcePageId,
+        pageNumber: page.pageNumber,
+        coordinateSpace: 'image',
+        pageTransform: page.sourceTransform || page.transform,
+        rasterTransform: page.rasterTransform,
+        rotation: page.rotation || 0,
+        geometrySource: 'human-traced',
+        nativeElementIds: [],
+        sourceRegionIds: [region.id],
+        calibrationRevision: calibration.revision,
+        calibration: { source: calibration.source, p0: calibration.p0, p1: calibration.p1, pixelDistance: calibration.pixelDistance, realDistance: calibration.realDistance, realUnit: calibration.realUnit, realDistanceMetres: calibration.realDistanceMetres, pixelsPerMetre: calibration.pixelsPerMetre },
+        parserVersion: run.versions.parser,
+        normalizationVersion: run.versions.normalization,
+        rulesetVersion: run.versions.ruleset,
+        evidence: ['operator-confirmed calibration', 'human-traced region'],
+        points: structuredClone(region.points),
+        category: region.category,
+        typicalMultiplier: run.typicalMultiplier,
+        sourceHandles: [],
+        sourceSheet: sourceDocument.sourceSheet,
+        quantity
+      });
+    }
+  }
+  const lines = [...byCategory.entries()].map(([measurement, quantity]) => {
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new InputError(`Raster category ${measurement} produced an invalid aggregate area.`);
+    return { measurement, label: measurement === 'floor_area' ? 'Floor finish area' : measurement === 'wall_area' ? 'Wall finish area' : measurement, quantity, unit: 'm²', confidence: { level: 'HIGH', evidence: ['operator-confirmed calibration', 'human-traced region'] }, measurementStatus: 'measured', provenance: { sourceHandles: [], sourceContributions: contributions.filter((contribution) => contribution.category === measurement) } };
+  });
+  if (!lines.length) lines.push({ measurement: 'floor_area', label: 'Floor finish area', quantity: area, unit: 'm²', confidence: { level: 'HIGH', evidence: ['operator-confirmed calibration', 'human-traced region'] }, measurementStatus: 'measured_zero', provenance: { sourceHandles: [], sourceContributions: [] } });
+  return { versions: run.versions, ruleset: run.versions.ruleset, lines };
+}
+
+function normalizeRasterCategory(value) {
+  const category = String(value ?? '').trim();
+  if (!category) return null;
+  if (category.length > LIMITS.rasterCategoryLength) throw new InputError(`Raster category must be at most ${LIMITS.rasterCategoryLength} characters.`);
+  if (!['floor_area', 'wall_area'].includes(category)) throw new InputError('Raster category must be one of: floor_area, wall_area.');
+  return category;
+}
+
 function stageState(name, status) {
   return ['ingestion', 'measurement', 'boq'].map((stage) => ({
     name: stage,
@@ -650,7 +995,7 @@ function failRun(run, error, stageName, sourceDocument) {
   run.status = 'failed';
   const message = error.message || 'Unexpected PDF processing failure.';
   const pageContext = error.sourcePageId ? ` Affected page: ${error.sourcePageId}.` : '';
-  run.error = sourceDocument?.format === 'pdf' && !/re-export|split the source|source assignment/i.test(message)
+  run.error = sourceDocument?.format === 'pdf' && error.code !== 'mixed_pdf_unsupported' && !/re-export|split the source|source assignment/i.test(message)
     ? `PDF "${sourceDocument.filename}" could not be processed: ${message}${pageContext} Re-export a born-digital vector PDF or split the source into smaller files.`
     : `${message}${pageContext}`;
   run.blockedReasons = [];
@@ -675,6 +1020,10 @@ function isCurrentSnapshot(run, sourceDocument) {
     && sourceDocument.boqVersionId === snapshot.sourceBoqVersionId
     && sourceDocument.id === snapshot.sourceDocumentId
     && sourceDocument.version === snapshot.sourceDocumentVersion;
+}
+
+function isCurrentRasterRun(run, sourceDocument) {
+  return Boolean(sourceDocument && run && sourceDocument.currentProcessingRunId === run.id && sourceDocument.processingRevision === run.sourceProcessingRevision);
 }
 
 function canReplaySetup(setup, run, sourceDocument) {

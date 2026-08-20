@@ -6,6 +6,10 @@ const { LIMITS, LimitError } = require('./ingestion/limits');
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 const MAX_UPLOAD_BODY_BYTES = LIMITS.uploadBytes;
+const PDFJS_ASSETS = Object.freeze({
+  '/pdfjs/pdf.mjs': 'pdf.mjs',
+  '/pdfjs/pdf.worker.mjs': 'pdf.worker.mjs'
+});
 
 class PayloadTooLargeError extends Error {
   constructor(message, details = {}) {
@@ -20,6 +24,7 @@ function createServer(application = createApplication()) {
       const url = new URL(request.url, 'http://localhost');
       if (request.method === 'GET' && url.pathname === '/') return sendFile(response, 'index.html', 'text/html; charset=utf-8');
       if (request.method === 'GET' && url.pathname === '/app.js') return sendFile(response, 'app.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && PDFJS_ASSETS[url.pathname]) return sendPdfjsAsset(response, PDFJS_ASSETS[url.pathname]);
       if (request.method === 'POST' && url.pathname === '/api/projects') {
         return sendJson(response, 201, { project: application.createProject(await readJson(request)) });
       }
@@ -94,25 +99,55 @@ function createServer(application = createApplication()) {
       if (request.method === 'GET' && runMatch) return sendJson(response, 200, application.getRun(runMatch[1]));
       const runClassificationsMatch = /^\/api\/runs\/(run_\d+)\/classifications$/.exec(url.pathname);
       if (request.method === 'GET' && runClassificationsMatch) return sendJson(response, 200, application.getClassifications(runClassificationsMatch[1]));
+      const imageMatch = /^\/api\/runs\/(run_\d+)\/pages\/(page_\d+)\/image$/.exec(url.pathname);
+      if (request.method === 'GET' && imageMatch) {
+        const image = application.getRasterImage(imageMatch[1], imageMatch[2]);
+        response.writeHead(200, { 'content-type': image.mediaType, 'cache-control': 'no-store' });
+        return response.end(image.content);
+      }
       const reprocessMatch = /^\/api\/runs\/(run_\d+)\/reprocess$/.exec(url.pathname);
       if (request.method === 'POST' && reprocessMatch) return sendJson(response, 202, { processingRun: application.reprocess(reprocessMatch[1]) });
       const setupMatch = /^\/api\/runs\/(run_\d+)\/setup$/.exec(url.pathname);
       if (request.method === 'POST' && setupMatch) return sendJson(response, 202, { processingRun: application.confirmSourceSetup(setupMatch[1], await readJson(request)) });
+      const calibrationMatch = /^\/api\/runs\/(run_\d+)\/pages\/(page_\d+)\/calibration$/.exec(url.pathname);
+      if (request.method === 'POST' && calibrationMatch) return sendJson(response, 202, application.calibrateRasterPage(calibrationMatch[1], calibrationMatch[2], await readJson(request)));
+      const regionMatch = /^\/api\/runs\/(run_\d+)\/pages\/(page_\d+)\/regions(?:\/(region_\d+))?(?:\/(confirm))?$/.exec(url.pathname);
+      if (regionMatch?.[4] === 'confirm' && request.method === 'POST') return sendJson(response, 202, application.confirmRasterRegion(regionMatch[1], regionMatch[2], regionMatch[3], { ...await readJson(request), ...revisionQuery(url) }));
+      if (request.method === 'POST' && regionMatch && !regionMatch[3]) return sendJson(response, 202, application.createRasterRegion(regionMatch[1], regionMatch[2], await readJson(request)));
+      if (request.method === 'PATCH' && regionMatch?.[3]) return sendJson(response, 200, application.updateRasterRegion(regionMatch[1], regionMatch[2], regionMatch[3], await readJson(request)));
+      if (request.method === 'DELETE' && regionMatch?.[3]) return sendJson(response, 200, application.deleteRasterRegion(regionMatch[1], regionMatch[2], regionMatch[3], revisionQuery(url)));
       return sendJson(response, 404, { error: 'Not found.' });
     } catch (error) {
       const status = error instanceof PayloadTooLargeError || error instanceof LimitError ? 413 : error instanceof ConflictError ? 409 : error instanceof InputError ? 422 : error instanceof NotFoundError ? 404 : 500;
-      const body = { error: status === 500 ? 'Unexpected server error.' : (error.message || 'Unexpected server error.') };
+      const runContext = /^\/api\/runs\/(run_\d+)(?:\/pages\/(page_\d+))?/.exec(new URL(request.url, 'http://localhost').pathname);
+      const body = {
+        error: status === 500 ? 'Unexpected server error.' : (error.message || 'Unexpected server error.'),
+        code: status === 500 ? 'internal_error' : error.code || ({ 400: 'invalid_request', 404: 'not_found', 409: 'workflow_conflict', 413: 'limit_exceeded', 422: 'invalid_input' }[status] || 'request_error'),
+        stage: error.stage || (runContext ? 'raster' : 'request'),
+        retryable: error.retryable ?? false,
+        ...(runContext ? { runId: runContext[1], sourcePageId: runContext[2] || null } : {})
+      };
+      if (error.sourceDocumentId) body.sourceDocumentId = error.sourceDocumentId;
       if (error instanceof LimitError || error instanceof PayloadTooLargeError) Object.assign(body, { code: 'limit_exceeded', stage: error.stage || 'upload', limitName: error.limitName, observed: error.observed, maximum: error.maximum });
       return sendJson(response, status, body);
     }
   });
 }
 
+function revisionQuery(url) {
+  const result = {};
+  for (const key of ['expectedRevision', 'expectedPageRevision', 'expectedRegionRevision']) {
+    const value = url.searchParams.get(key);
+    if (value !== null) result[key] = value;
+  }
+  return result;
+}
+
 async function readUpload(request) {
   const contentType = request.headers['content-type'] || '';
   const boundaryMatch = /boundary=(?:"([^"]+)"|([^;\s]+))/.exec(contentType);
   const boundary = boundaryMatch?.[1] || boundaryMatch?.[2];
-  if (!boundary) throw new InputError('Submit the DXF as multipart form data.');
+  if (!boundary) throw new InputError('Submit the drawing as multipart form data.');
 
   const body = await readBody(request, MAX_UPLOAD_BODY_BYTES, 'uploadBytes');
   const parts = splitMultipart(body, Buffer.from(`--${boundary}`));
@@ -129,7 +164,7 @@ async function readUpload(request) {
     if (name === 'drawing') drawingPart = { value, filename: /filename="([^"]+)"/.exec(headers)?.[1] };
     else fields[name] = value.toString('utf8');
   }
-  if (!drawingPart?.filename) throw new InputError('A DXF drawing field is required.');
+  if (!drawingPart?.filename) throw new InputError('A drawing file field is required.');
   return {
     filename: drawingPart.filename,
     content: drawingPart.value,
@@ -204,6 +239,12 @@ function sendJson(response, status, body) {
 async function sendFile(response, filename, contentType) {
   const content = await readFile(join(__dirname, '..', 'public', filename));
   response.writeHead(200, { 'content-type': contentType });
+  response.end(content);
+}
+
+async function sendPdfjsAsset(response, filename) {
+  const content = await readFile(join(__dirname, '..', 'node_modules', 'pdfjs-dist', 'build', filename));
+  response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' });
   response.end(content);
 }
 
