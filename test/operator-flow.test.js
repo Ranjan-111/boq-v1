@@ -137,15 +137,17 @@ test('image-only PDF enters the normalized raster calibration handoff without a 
   assert.match(run.blockedReasons.join(' '), /calibration|tracing/i);
 });
 
-test('PDF pages with vector and image content are classified mixed with both evidence sets', async () => {
+test('PDF pages with vector and image content fail closed without omitting vector quantities', async () => {
   const response = await uploadPdfBytes(makeImageOnlyPdf(true), 'mixed-vector-image.pdf');
   assert.equal(response.status, 202);
   const submission = await response.json();
   const run = await completedRun(submission.processingRun.id);
-  assert.equal(run.status, 'awaiting_calibration');
-  assert.equal(run.setup.route, 'raster');
+  assert.equal(run.status, 'failed');
+  assert.equal(run.errorDetails.code, 'mixed_pdf_unsupported');
+  assert.equal(run.exportable, false);
+  assert.equal(run.boq, null);
   assert.equal(run.setup.status, 'pending');
-  assert.match(run.blockedReasons.join(' '), /mixed|native metadata|raster regions/i);
+  assert.match(run.error, /vector quantities and raster regions cannot be measured together/i);
   assert.equal(run.pages[0].kind, 'mixed');
   assert.equal(run.pages[0].route, 'raster');
   assert.ok(run.pages[0].nativeRegionIds.length > 0);
@@ -183,7 +185,7 @@ test('vector PDF setup gates measurement and preserves page-region provenance', 
   assert.deepEqual(provenance.nativeElementIds, ['pdf:p1:path:0001']);
   assert.equal(provenance.geometrySource, 'native-vector');
   assert.equal(provenance.rotation, 90);
-  assert.deepEqual(provenance.pageTransform, [0, 1, -1, 0, 36, 0]);
+  assert.deepEqual(provenance.pageTransform, [0, 1, 1, 0, 0, 0]);
   assert.equal(provenance.processingRunId, run.id);
   assert.equal(provenance.setupRevision, 1);
   assert.equal(provenance.scale.drawingUnitsPerMetre, 72);

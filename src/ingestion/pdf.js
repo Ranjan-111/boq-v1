@@ -94,7 +94,10 @@ async function inspectPdfInternal(content, sourceDocument, { limits = LIMITS } =
       checkDeadline(deadline, limits, destroy, currentSourcePageId);
       const page = await awaitDeadline(document.getPage(pageNumber), deadline, limits, `loading PDF page ${pageNumber}`, destroy, currentSourcePageId);
       const rotation = page.rotate || 0;
-      const viewport = page.getViewport({ scale: 1, rotation, dontFlip: true });
+      // Match the browser preview's PDF.js viewport exactly. The default
+      // viewport includes PDF.js's y-axis flip; using dontFlip here made
+      // rotated-page tracing coordinates disagree with the rendered canvas.
+      const viewport = page.getViewport({ scale: 1, rotation });
       const pageText = await readTextContent(page, deadline, limits, destroy, limits.pdfTextItems - textItems, pageNumber);
       textItems += pageText.length;
       const nativeText = pageText.map((item, index) => ({
@@ -119,16 +122,36 @@ async function inspectPdfInternal(content, sourceDocument, { limits = LIMITS } =
       if (vectorRegions > limits.pdfVectorRegions) throw new LimitError(`PDF contains more than ${limits.pdfVectorRegions} vector regions; simplify or split the source.`, { limitName: 'pdfVectorRegions', observed: vectorRegions, maximum: limits.pdfVectorRegions, sourcePageId: pageId(pageNumber) });
       if (rasterRegions > limits.pdfRasterRegions) throw new LimitError(`PDF contains more than ${limits.pdfRasterRegions} raster regions; simplify or split the source.`, { limitName: 'pdfRasterRegions', observed: rasterRegions, maximum: limits.pdfRasterRegions, sourcePageId: pageId(pageNumber) });
       const kind = geometry.regions.length && geometry.rasterRegions.length ? 'mixed' : geometry.regions.length ? 'vector' : 'raster';
+      const pageWidth = page.view[2] - page.view[0];
+      const pageHeight = page.view[3] - page.view[1];
+      const previewWidth = viewport.width;
+      const previewHeight = viewport.height;
+      if (kind !== 'vector') {
+        if (!Number.isFinite(previewWidth) || !Number.isFinite(previewHeight) || previewWidth <= 0 || previewHeight <= 0) throw new Error(`PDF raster page ${pageNumber} has invalid preview dimensions; re-export the source.`);
+        if (previewWidth > limits.rasterWidth) throw new LimitError(`PDF raster page width exceeds ${limits.rasterWidth}; simplify or split the source.`, { limitName: 'rasterWidth', observed: previewWidth, maximum: limits.rasterWidth, sourcePageId: pageId(pageNumber) });
+        if (previewHeight > limits.rasterHeight) throw new LimitError(`PDF raster page height exceeds ${limits.rasterHeight}; simplify or split the source.`, { limitName: 'rasterHeight', observed: previewHeight, maximum: limits.rasterHeight, sourcePageId: pageId(pageNumber) });
+        if (previewWidth * previewHeight > limits.rasterPixels) throw new LimitError(`PDF raster page pixel area exceeds ${limits.rasterPixels}; simplify or split the source.`, { limitName: 'rasterPixels', observed: previewWidth * previewHeight, maximum: limits.rasterPixels, sourcePageId: pageId(pageNumber) });
+      }
       pages.push({
         sourcePageId: pageId(pageNumber),
         pageNumber,
         kind,
-        width: page.view[2] - page.view[0],
-        height: page.view[3] - page.view[1],
+        width: pageWidth,
+        height: pageHeight,
+        // Raster interaction uses the same normalized, page-preview coordinate
+        // space as the browser PDF canvas. Keep the PDF viewport transform so
+        // downstream evidence can still map back to source PDF user space.
+        // Raster interaction is expressed in the same rotated viewport space
+        // used by PDF.js in the browser. Raw PDF user-space geometry remains
+        // recoverable through sourceTransform and the explicit rotation.
+        pixelWidth: kind === 'vector' ? undefined : previewWidth,
+        pixelHeight: kind === 'vector' ? undefined : previewHeight,
         coordinateSpace: 'pdf',
         coordinateSpaceDefinition: 'page viewport after rotation; raw PDF user space is preserved in rawTransform fields',
         rotation,
         transform: viewport.transform,
+        sourceTransform: viewport.transform,
+        rasterTransform: kind === 'vector' ? undefined : [1, 0, 0, 1, 0, 0],
         route: kind === 'vector' ? 'native-vector' : 'raster',
         nativeText,
         nativeTextIds: nativeText.map((item) => item.id),
