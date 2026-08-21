@@ -16,6 +16,20 @@ never be reported as a satisfied one.
 
 ## Carried limitations
 
+- **Serverless hosting loses state between instances.** The application keeps its
+  SQLite database in memory (`file: ':memory:'`) and its working set in the process, so
+  on Vercel a warm function instance behaves correctly and a cold start or a second
+  concurrent instance sees an empty system -- an existing project returns "Project not
+  found". `api/index.js` makes the deployment boot and run a drawing end to end, which
+  is enough to demonstrate, but this is a long-lived stateful server and a persistent
+  host (Render, Railway, Fly, a VPS) is the correct home for it. Moving the store to
+  Postgres is the alternative; `src/repository.js` was kept narrow for exactly that
+  swap.
+- **Background stage advancement does not survive a frozen function.** The serverless
+  entry therefore schedules stages synchronously, so a DXF upload completes inside the
+  request. PDF and raster runs still gate on operator input across requests and are not
+  proven on serverless.
+
 - **#19 is not closed and cannot be.** The E0/E1 harness is built and proven against
   synthetic fixtures, but every figure the product has ever produced is measured against
   fixtures we wrote. No real studio drawing has been through it. The harness removes the
