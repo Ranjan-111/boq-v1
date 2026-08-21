@@ -41,6 +41,7 @@ function createServer(application = createApplication()) {
     try {
       const url = new URL(request.url, 'http://localhost');
       if (request.method === 'GET' && url.pathname === '/') return sendFile(response, 'index.html', 'text/html; charset=utf-8');
+      if (request.method === 'GET' && url.pathname === '/style.css') return sendFile(response, 'style.css', 'text/css; charset=utf-8');
       if (request.method === 'GET' && url.pathname === '/app.js') return sendFile(response, 'app.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && PDFJS_ASSETS[url.pathname]) return sendPdfjsAsset(response, PDFJS_ASSETS[url.pathname]);
       if (request.method === 'GET' && OCR_ASSETS[url.pathname]) return sendOcrAsset(response, OCR_ASSETS[url.pathname]);

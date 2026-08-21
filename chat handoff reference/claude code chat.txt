@@ -1,0 +1,201 @@
+# Claude Code — Task 1: verify, then integrate
+
+Paste everything below into Claude Code, in the repo root, with HANDOFF.md and
+PRODUCT-BUILD-PLAN.md available in the working directory.
+
+---
+
+You are the engineering agent for the Drawing-to-BOQ project. Read HANDOFF.md and
+PRODUCT-BUILD-PLAN.md in this directory before doing anything else — they carry the
+product context, the frozen architectural rules, and the verified repo state.
+
+**Workflow for this repo, from now on:**
+- **Commit directly to main. Do not open pull requests and do not create GitHub issues.**
+  The earlier PR/issue workflow came from a session where GitHub auth was configured
+  differently; it no longer applies. Local commits only.
+- Test-first at public behavioural seams. No implementation without a red test.
+- Never fabricate results, accuracy figures or backend behaviour. If something isn't
+  implemented, surface it as unavailable — never simulate it.
+
+Do **not** start feature work. This task is two steps only.
+
+---
+
+## Step 1 — Spot-check five claims (bounded; do not turn this into a survey)
+
+A previous session verified the repo state. Confirm or refute these five claims and
+report each as CONFIRMED or REFUTED with the evidence you used. If any is refuted,
+**stop and report before touching Step 2.**
+
+1. main contains only the PR #21 baseline — one clean DXF, in-memory, no tiering,
+   no storeys, no fusion. src/application.js around 389 lines.
+2. No single branch contains both src/classification.js (evidence fusion, #5) and
+   src/ingestion/raster.js (#8). They are on divergent branches.
+3. The issue6 worktree is byte-identical to issue5 — meaning issue #6 (versioned
+   measurement rules and editable assumptions) was **never implemented**, despite
+   appearing complete. Nothing in the repo versions a ruleset.
+4. Each branch's own test suite passes in isolation.
+5. vision.js holds the model API key browser-side, which cannot ship.
+
+---
+
+## Step 2 — Integrate the branches into one main
+
+This is the hard blocker. There is currently no build of this product that can do both
+evidence fusion and raster ingestion. Nothing downstream — UI, exception queue, rate
+books — can be validated until this is fixed.
+
+**Merge in this order, least invasive first:**
+
+main → #3 → #4 → #5 → #7 → #8 → #9
+**Rules:**
+- One branch at a time. Run the **full** suite after each. Fix before the next.
+  **Never batch two merges.**
+- Expect hard conflicts in src/application.js. Five branches grew that file
+  independently: 442 → 602 → 619 → 968 → 1037 lines. implementation-map.md names it
+  as the conflict zone — specifically lines 7–86 (lifecycle and run schema) and
+  131–190 (quantity and provenance schema).
+- Where two branches solved the same problem differently (parser, category rules),
+  keep **one** — the later, richer version — and delete the other. Do not leave two
+  parsers in the tree.
+- The union of all suites becomes the regression suite. multi-floor,
+  classification, pdf-adapter, raster-*, ocr-* and operator-* must all pass
+  **together** at the end.
+- Preserve the safety guarantees while resolving conflicts. These are not negotiable
+  and a merge that quietly drops one is a failed merge:
+  - tier distinction (A/B/C) and explicit DWG refusal
+  - scale gate reads raw file text, never a library default
+  - three-state measurements: measured / measured-zero / not-measurable
+  - BLOCK severity gating export
+  - provenance handles on every quantity
+  - the model returns labels, never numbers
+
+**Exit criterion:** one running instance ingests a DXF, a vector PDF and a raster
+image; each produces a BOQ at its correct tier; evidence fusion runs on the DXF.
+Demonstrate this, don't assert it.
+
+**Before committing the final merge, answer the merge gate:**
+1. Can this silently produce a wrong quantity?
+2. Can an AI output enter a calculation as a number?
+3. Can missing geometry look like zero?
+4. Can an old approval survive a changed quantity?
+5. Can provenance break?
+6. Can a wrong unit silently scale the project?
+7. Can a raster/PDF interpretation be mistaken for exact CAD geometry?
+8. Can a stale rate or vendor reach an export?
+9. Can an unresolved BOQ be exported?
+
+---
+
+## Report back
+
+- The five spot-check results
+- What conflicted and how you resolved it — especially anywhere two branches disagreed
+  about the same behaviour
+- Anything you deleted as a duplicate, and why that version lost
+- Final test count, passing together
+- Any safety guarantee that was hard to preserve through the merges
+- Updated docs/agents/implementation-map.md with the new baseline commit
+
+Then stop. Architecture and scope decisions are being settled in parallel; do not start
+ticket work until that lands.
+
+I'll start by reading the context documents and checking the repo state.
+
+
+Ran 2 commands
+Immediate discrepancy: only main exists locally and on origin — no #3–#9 branches, no issue5/issue6 worktrees, and no HANDOFF.md. Let me verify thoroughly before reporting.
+
+
+Ran 4 commands
+Let me read the plan docs and check whether the described branches exist in any other clone on this machine.
+
+
+Ran 2 commands
+Found the real repo. The branches live in a different clone: /Users/priyanshuranjankumar/Downloads/boq-transfer/boq-v1. My working directory is a fresh main-only clone. Let me spot-check the five claims against the actual branch state.
+
+
+Ran 5 commands
+Topology is clearer than the handoff suggests. Let me verify parentage precisely and run each branch's suite.
+
+Verified commit parentage and ancestry
+Now let me bring the branches into the working repo and run each suite in isolation.
+
+
+Ran 6 commands
+The failure is a missing dependency, not a real test failure. Let me install deps and re-run properly.
+
+
+Ran 3 commands
+Those may be environment failures — i7/i8/i9 likely declare extra dependencies. Let me check per-branch package.json rather than reusing main's node_modules.
+
+Compared dependencies across branches
+That was my error — I symlinked main's node_modules. Let me install each branch's real dependencies.
+
+
+Ran 4 commands
+i8 passes on re-run (the one failure was a flaky browser test). Now i9, which is the slowest.
+
+Ran i9 suite with real deps
+All suites pass in isolation. Now claim 5 — verify vision.js is genuinely browser-side.
+
+
+Ran 2 commands
+Let me finalize claim 1 with substance checks on main.
+
+
+Ran 2 commands
+Let me do a non-destructive dry-run to size the real conflict before reporting.
+
+
+Ran 3 commands
+Working tree is clean. Stopping here as instructed — claim 1 is refuted.
+
+Step 1 — spot-check results
+First, a setup finding that changes the premise: the working directory was the wrong repo. /Users/priyanshuranjankumar/Documents/boq is a fresh main-only clone — no feature branches, no worktrees, and no HANDOFF.md (it has never been committed to any branch; I worked from PHASE-PLAN-V2.md and PRODUCT-BUILD-PLAN.md instead). The real branches live in a second clone at /Users/priyanshuranjankumar/Downloads/boq-transfer/boq-v1. I added that as a git remote transfer and fetched all 12 branches into the working repo — non-destructive, nothing committed.
+
+#	Claim	Verdict
+1	main = PR #21 baseline only, ~389 lines	REFUTED
+2	No branch holds both classification.js and ingestion/raster.js	CONFIRMED
+3	issue6 identical to issue5; #6 never implemented	CONFIRMED (stronger)
+4	Each branch's suite passes in isolation	CONFIRMED
+5	vision.js is browser-keyed	CONFIRMED
+1 — REFUTED. main (5a55140) contains PR #21 plus PR #23 (#3 unsafe DXF) and PR #24 (#4 multi-floor). src/application.js is 442 lines, not 389. Storeys are present and working (createStorey, storeyId, POST /api/buildings/:id/storeys, multi-floor.test.js), and explicit DWG refusal is at application.js:123. The claim is right only about tiering vocabulary and fusion being absent, and about it being in-memory. Decisively: git diff main transfer/codex/issue-4-multi-floor is empty — main's tree is byte-identical to the #4 branch.
+
+2 — CONFIRMED. src/classification.js exists only on issue-5/6; src/ingestion/raster.js only on issue-8/9. Merge-base of the two is 226cdec (#4). Genuinely divergent.
+
+3 — CONFIRMED, and stronger than stated. issue5 and issue6 are not merely identical trees — they are the same commit, 8817c59. Issue #6 produced nothing. One precision on the wording: a ruleset identifier is stamped into provenance (DXF_VERSIONS = { parser: 'dxf-v1', ruleset: 'clean-plan-v1', … } at dxf.js:9) and asserted in tests. That is a frozen label, not a versioning system — no rule alternatives, no editable assumptions. #6's actual deliverable is absent.
+
+4 — CONFIRMED, but only after correcting my own setup error. My first run showed i7/i8/i9 failing badly; that was because I had symlinked main's node_modules into every worktree, and those branches declare their own deps (pdfjs-dist, tesseract.js). With per-branch npm install, every suite is green:
+
+main	i3	i4	i5	i7	i8	i9
+38	20	38	48	61	75	96
+Caveat worth carrying forward: i8 failed one Playwright test on first run and passed on re-run — the browser tests are flaky, which will make "full suite green after each merge" noisy. Also note no node_modules existed anywhere; I ran npm install and npx playwright install chromium to make the suites runnable at all.
+
+5 — CONFIRMED. vision.js:131 and :181, :274 fetch https://generativelanguage.googleapis.com/v1beta directly from the browser with x-goog-api-key: apiKey, where the key is typed into a password field in the page (#gkey, prototype line 1803). Separately: vision.js is prototype-only — nothing in src/ imports it. The contract it documents ("returns a LABEL… never a quantity") is currently unenforced by any server-side code.
+
+Why this changes Step 2 — the merge order is wrong
+The refutation is favourable, and it materially simplifies the integration. Real topology:
+
+ab28927 (#2/PR21)
+ └ d27c123 (#3) ── 226cdec (#4) ─┬─ 8817c59 (#5 ≡ #6)
+                                 └─ 3ec0ead (#7) ─ e5e9fad (#8) ─ 0c4ea5a (#9)
+main (5a55140) = merge of #3 + #4, tree ≡ 226cdec
+#3 and #4 are already in main. Merging them is a no-op; the prescribed 6-step order starts with two empty steps.
+#7 → #8 → #9 is already a linear chain, and it already contains #4. Merging #9 brings #7 and #8 with it.
+There is exactly one divergence point, not five.
+Dry-run merges (in a throwaway worktree, aborted, nothing committed):
+
+Merge	Result
+#5 into main	clean, 0 conflicts
+#9 chain into main (without #5)	clean, 0 conflicts
+#5, then #7	conflicts: src/application.js (7 hunks), public/app.js, package.json
+#5, then #9 whole chain	conflicts: src/application.js (8 hunks), public/app.js, package.json, src/server.js
+So the entire integration reduces to one genuine conflict resolution: fusion (#5) against the PDF/raster/OCR chain, in application.js. The handoff's "five branches grew that file independently, expect hard conflicts throughout" overstates it — four of the six merges are free.
+
+Two corrections to the brief's other premises: docs/agents/implementation-map.md does not exist on any branch, so there is nothing to update with a new baseline commit — I'd need to create it. And no parser/category-rules duplication has surfaced yet; I'll only know once I open those 8 conflict hunks.
+
+Recommendation
+I stopped before Step 2 as instructed. To proceed I'd suggest the revised order main → #5 → #7 → #8 → #9 (dropping the two no-op merges, keeping #7/#8/#9 separate for incremental checkpoints rather than merging #9 in one jump), with the full suite run after each.
+
+Before I start, one decision is genuinely yours:

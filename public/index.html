@@ -3,153 +3,340 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>BOQ operator</title>
-    <style>
-      :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #101214; color: #f5f7fa; }
-      body { max-width: 1120px; margin: 0 auto; padding: 3rem 1.25rem; }
-      h1 { margin-bottom: .4rem; } p { color: #abb4c0; } section { margin-top: 2rem; padding: 1.25rem; border: 1px solid #323944; }
-      button, input { font: inherit; padding: .7rem .9rem; } button { cursor: pointer; background: #edf3ff; color: #111827; border: 0; font-weight: 700; }
-      button:disabled { opacity: .6; cursor: wait; } #run-summary { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
-      .stage { border: 1px solid #46505e; padding: .35rem .6rem; text-transform: capitalize; } .completed { border-color: #43b581; color: #70d6a0; }
-      .running { border-color: #7ea6ff; color: #a8c2ff; } .failed { border-color: #f27a7a; color: #ffaaaa; }
-      table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: .9rem; } th, td { padding: .7rem; text-align: left; border-bottom: 1px solid #323944; vertical-align: top; }
-      th { color: #aeb8c5; } code { font-size: .82em; } .error { color: #ffaaaa; } #raster-preview { position: relative; display: inline-block; max-width: 100%; min-width: 200px; min-height: 100px; overflow: auto; line-height: 0; background: #080a0d; } #raster-image, #raster-pdf-canvas, #raster-canvas { display: block; position: absolute; left: 0; top: 0; } #raster-image, #raster-pdf-canvas { z-index: 1; } #raster-canvas { z-index: 2; cursor: crosshair; } #raster-render-error { min-height: 1.4rem; } .raster-region { padding: .45rem 0; border-bottom: 1px solid #323944; } .raster-region.human-traced { color: #70d6a0; } .raster-region.proposed { color: #80bfff; border-left: 3px dashed #80bfff; padding-left: .5rem; } #ocr-workflow { border-color: #536b99; } #ocr-status[data-state="completed"], #ocr-status[data-state="ready"], #ocr-status[data-state="offline-cache-hit"] { color: #70d6a0; } #ocr-status[data-state="unsupported"], #ocr-status[data-state="offline-missing"], #ocr-status[data-state="evicted"], #ocr-status[data-state="failed"], #ocr-status[data-state="aborted"] { color: #ffaaaa; } #ocr-progress { width: min(34rem, 100%); }
-      #raster-workflow.ocr-only #raster-status, #raster-workflow.ocr-only #raster-keyboard-controls, #raster-workflow.ocr-only #raster-render-error, #raster-workflow.ocr-only #raster-calibration-actions, #raster-workflow.ocr-only #raster-category-label, #raster-workflow.ocr-only #raster-close-region, #raster-workflow.ocr-only #raster-regions, #raster-workflow.ocr-only #raster-canvas { display: none; }
-    </style>
+    <title>BOQ Operator</title>
+    <meta name="description" content="Drawing-to-BOQ operator interface — deterministic, source-backed quantity takeoffs from architectural drawings.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
   </head>
   <body>
-    <header>
-      <h1>Clean DXF to BOQ</h1>
-      <p>Upload a DXF, PDF, PNG, or JPEG to create a versioned source document and deterministic, source-backed BOQ. Units and raster scale must come from the file or an explicit operator decision.</p>
-    </header>
-    <section>
-      <h2>Project workspace</h2>
-      <form id="project-form">
-        <input id="project-name" name="name" placeholder="Project name" required>
-        <button type="submit">Create project</button>
-      </form>
-      <p id="project-status" role="status"></p>
-      <div id="project-controls" hidden>
-        <form id="building-form"><input id="building-name" placeholder="Building name" required><button type="submit">Add building</button></form>
-        <label>Building <select id="building-select"></select></label>
-        <form id="storey-form"><input id="storey-name" placeholder="Storey name" required><button type="submit">Add storey</button></form>
-        <label>Storey <select id="storey-select"></select></label>
-        <label>Source document <select id="source-document-select"><option value="">Select a source document…</option></select></label>
-        <label>Reassignment target <select id="reassignment-scope">
-          <option value="storey">Storey</option>
-          <option value="building">Building</option>
-          <option value="project">Project</option>
-        </select></label>
-        <input id="source-sheet" placeholder="Source sheet (optional)">
-        <label>Typical-storey multiplier <input id="typical-multiplier" type="number" min="1" step="1" value="1"></label>
-        <p>Multiplier is applied only when explicitly entered and is shown in the run provenance.</p>
-        <button id="reassign-source" type="button" hidden>Reassign current source</button>
+    <div class="app">
+      <!-- ── Header ──────────────────────────────────────── -->
+      <header class="app-header">
+        <div class="app-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          <span>BOQ Operator</span>
+        </div>
+        <div class="header-meta">
+          <span id="header-project-name"></span>
+          <span id="header-project-id" class="mono"></span>
+        </div>
+      </header>
+
+      <div class="app-layout">
+        <!-- ── Sidebar ─────────────────────────────────────── -->
+        <nav class="sidebar" id="sidebar">
+          <div class="nav-section">
+            <span class="nav-label">Workflow</span>
+            <a class="nav-item active" data-view="project" id="nav-project">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+              Project
+            </a>
+            <a class="nav-item" data-view="upload" id="nav-upload">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Upload
+            </a>
+            <a class="nav-item" data-view="review" id="nav-review">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              Review BOQ
+            </a>
+            <a class="nav-item" data-view="exceptions" id="nav-exceptions">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Exceptions
+              <span class="nav-badge blocking" id="nav-exception-count" hidden>0</span>
+            </a>
+            <a class="nav-item" data-view="workspace" id="nav-workspace">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              Workspace
+            </a>
+            <a class="nav-item" data-view="raster" id="nav-raster">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              Raster / OCR
+            </a>
+            <a class="nav-item" data-view="rollup" id="nav-rollup">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              Rollup
+            </a>
+            <a class="nav-item" data-view="export" id="nav-export">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              Approve &amp; Export
+            </a>
+          </div>
+        </nav>
+
+        <!-- ── Main Content ────────────────────────────────── -->
+        <main class="content" id="main-content">
+
+          <!-- ═══ VIEW: PROJECT ═══ -->
+          <section class="view active" id="view-project" data-view="project">
+            <div class="view-header">
+              <h2>Project workspace</h2>
+              <p>Create a project, add buildings and storeys, then upload drawings for each scope.</p>
+            </div>
+            <div class="card">
+              <div class="card-header"><h3>Create project</h3></div>
+              <form id="project-form" class="form-row">
+                <label>Project name
+                  <input id="project-name" name="name" placeholder="Project name" required>
+                </label>
+                <button type="submit">Create project</button>
+              </form>
+              <p id="project-status" role="status" class="mt-4 text-sm"></p>
+            </div>
+
+            <div id="project-controls" hidden>
+              <div class="card">
+                <div class="card-header"><h3>Structure</h3></div>
+                <div class="form-row mb-4">
+                  <form id="building-form" class="form-row" style="flex:2">
+                    <label>Building name <input id="building-name" placeholder="e.g. Tower A" required></label>
+                    <button type="submit">Add building</button>
+                  </form>
+                </div>
+                <div class="form-row mb-4">
+                  <label>Building <select id="building-select"></select></label>
+                  <form id="storey-form" class="form-row" style="flex:2">
+                    <label>Storey name <input id="storey-name" placeholder="e.g. Ground floor" required></label>
+                    <button type="submit">Add storey</button>
+                  </form>
+                </div>
+                <div class="form-row">
+                  <label>Storey <select id="storey-select"></select></label>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-header"><h3>Source documents</h3></div>
+                <div class="form-row mb-4">
+                  <label>Source document <select id="source-document-select"><option value="">Select a source document…</option></select></label>
+                  <label>Reassignment target <select id="reassignment-scope">
+                    <option value="storey">Storey</option>
+                    <option value="building">Building</option>
+                    <option value="project">Project</option>
+                  </select></label>
+                </div>
+                <div class="form-row mb-4">
+                  <label>Source sheet <input id="source-sheet" placeholder="Optional sheet name"></label>
+                  <label>Typical-storey multiplier <input id="typical-multiplier" type="number" min="1" step="1" value="1"></label>
+                </div>
+                <p class="text-xs text-muted mb-4">Multiplier is applied only when explicitly entered and is shown in the run provenance.</p>
+                <button id="reassign-source" type="button" hidden>Reassign current source</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═══ VIEW: UPLOAD ═══ -->
+          <section class="view" id="view-upload" data-view="upload">
+            <div class="view-header">
+              <h2>Upload clean DXF</h2>
+              <p>Upload a DXF, PDF, PNG, or JPEG. Units and raster scale must come from the file or an explicit operator decision.</p>
+            </div>
+            <div class="card">
+              <form id="upload-form">
+                <div class="upload-area" id="upload-dropzone">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <p>Drop your drawing here or <strong>click to browse</strong></p>
+                  <p class="upload-formats">DXF · PDF · PNG · JPEG — up to 50 MB</p>
+                  <input id="drawing" name="drawing" type="file" accept=".dxf,.pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf" required style="display:none">
+                </div>
+                <div class="form-row mt-4">
+                  <label for="fallback-unit">Fallback unit (only when the DXF unit is missing)
+                    <select id="fallback-unit" name="fallbackUnit">
+                      <option value="">No fallback — require source evidence</option>
+                      <option value="millimetres">Millimetres</option>
+                      <option value="centimetres">Centimetres</option>
+                      <option value="metres">Metres</option>
+                    </select>
+                  </label>
+                  <button type="submit">Create processing run</button>
+                </div>
+              </form>
+              <p id="message" role="status" class="mt-4 text-sm"></p>
+            </div>
+
+            <!-- Run status -->
+            <div class="card" id="run" hidden>
+              <div class="card-header"><h3>Processing run</h3></div>
+              <div id="run-summary"></div>
+              <button id="reprocess" type="button" class="mt-4" hidden>Reprocess this source</button>
+            </div>
+
+            <!-- PDF setup -->
+            <div class="card" id="pdf-setup" hidden>
+              <div class="card-header"><h3>Confirm PDF scale and regions</h3></div>
+              <p class="text-sm text-secondary mb-4">Native PDF geometry is inspected without OCR. Confirm the drawing units per metre and select the regions to measure.</p>
+              <form id="pdf-setup-form">
+                <div id="pdf-pages"></div>
+                <button type="submit" class="mt-4">Confirm PDF scale and regions</button>
+              </form>
+            </div>
+          </section>
+
+          <!-- ═══ VIEW: REVIEW ═══ -->
+          <section class="view" id="view-review" data-view="review">
+            <div class="view-header">
+              <h2>Reviewable BOQ</h2>
+              <p>Every number traces to the exact DXF entities that produced it. Click a row to expand provenance.</p>
+            </div>
+            <div id="classification-review" aria-live="polite"></div>
+            <div class="card" id="review" hidden>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr>
+                    <th>Measurement</th><th>Quantity</th><th>Unit</th>
+                    <th>Confidence</th><th>Measurement status</th><th>Provenance</th>
+                  </tr></thead>
+                  <tbody id="boq-lines"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═══ VIEW: EXCEPTIONS ═══ -->
+          <section class="view" id="view-exceptions" data-view="exceptions">
+            <div class="view-header">
+              <h2>Exception queue</h2>
+              <p>Sorted by rupee impact. Blocking exceptions must be resolved before export.</p>
+            </div>
+            <div class="card" id="exception-review" hidden>
+              <div class="flex items-center justify-between mb-4 gap-4" style="flex-wrap:wrap">
+                <p id="queue-ordering" class="text-sm text-secondary"></p>
+                <p id="queue-counts" class="text-sm"></p>
+              </div>
+              <div id="queue-cards"></div>
+              <table class="hidden"><tbody id="queue-rows"></tbody></table>
+            </div>
+          </section>
+
+          <!-- ═══ VIEW: WORKSPACE ═══ -->
+          <section class="view" id="view-workspace" data-view="workspace">
+            <div class="view-header">
+              <h2>Workspace</h2>
+              <p>Navigate from any BOQ line to its source evidence, or from any source object to the lines it feeds.</p>
+            </div>
+            <div class="card" id="workspace" hidden>
+              <div class="form-row mb-4">
+                <label>Line <select id="ws-line"></select></label>
+                <div class="flex gap-2 items-center">
+                  <button id="ws-prev" type="button" class="btn-sm">&larr; prev</button>
+                  <span id="ws-position" class="text-sm text-secondary"></span>
+                  <button id="ws-next" type="button" class="btn-sm">next &rarr;</button>
+                </div>
+              </div>
+              <div class="stats-row">
+                <div class="stat-card"><div class="stat-label">Navigate</div><p id="ws-navigate" class="text-sm mt-2"></p></div>
+                <div class="stat-card"><div class="stat-label">Breakdown</div><p id="ws-breakdown" class="text-sm mt-2"></p></div>
+                <div class="stat-card"><div class="stat-label">Tier</div><p id="ws-tiers" class="text-sm mt-2"></p></div>
+              </div>
+              <p id="ws-viewport" class="text-sm text-secondary mb-4"></p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Sign</th><th>Qty</th><th>Tier</th><th>Source object</th><th>Bounds</th><th>Lines affected</th></tr></thead>
+                  <tbody id="ws-contributions"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═══ VIEW: RASTER ═══ -->
+          <section class="view" id="view-raster" data-view="raster">
+            <div class="view-header">
+              <h2 id="raster-workflow-title">Raster calibration and tracing</h2>
+              <p>For raster images: calibrate the scale, trace regions, then confirm.</p>
+            </div>
+            <div class="card" id="raster-workflow" hidden>
+              <p id="raster-status" class="text-sm text-secondary mb-4">Select two points on the image for calibration.</p>
+              <div class="form-row mb-4">
+                <label>Page <select id="raster-page-select"></select></label>
+              </div>
+              <div id="raster-preview"><img id="raster-image" alt="Raster drawing preview" hidden><canvas id="raster-pdf-canvas" aria-label="PDF raster page preview" hidden></canvas><canvas id="raster-canvas" aria-label="Raster calibration and tracing overlay" role="img" tabindex="0" width="200" height="100"></canvas></div>
+              <div id="raster-keyboard-controls" class="form-row mt-4">
+                <label for="raster-point-x">X <input id="raster-point-x" type="number" step="any" inputmode="decimal"></label>
+                <label for="raster-point-y">Y <input id="raster-point-y" type="number" step="any" inputmode="decimal"></label>
+                <button id="raster-add-point" type="button" class="btn-sm">Add point</button>
+                <button id="raster-clear-points" type="button" class="btn-sm">Clear points</button>
+              </div>
+              <p id="raster-render-error" class="error mt-2" role="alert"></p>
+              <div id="raster-calibration-actions" class="mt-4">
+                <form id="raster-calibration-form" class="form-row">
+                  <label>Reference distance <input id="raster-distance" type="number" min="0" step="any" placeholder="Distance" required></label>
+                  <label>Unit <select id="raster-unit"><option value="m">metres</option><option value="cm">centimetres</option><option value="mm">millimetres</option></select></label>
+                  <button id="raster-calibration-submit" type="submit">Confirm calibration</button>
+                </form>
+                <button id="raster-correct-calibration" type="button" class="mt-2" hidden>Correct calibration</button>
+              </div>
+              <div class="form-row mt-4">
+                <label id="raster-category-label">Region category <select id="raster-category"><option value="floor_area">Floor area</option><option value="wall_area">Wall area</option></select></label>
+                <button id="raster-close-region" type="button" disabled>Close traced region</button>
+              </div>
+              <div id="raster-regions" aria-live="polite" class="mt-4"></div>
+            </div>
+
+            <!-- OCR -->
+            <div class="card mt-4" id="ocr-workflow" hidden>
+              <div class="card-header"><h3>Optional local OCR</h3></div>
+              <p class="text-sm text-secondary mb-4">OCR is evidence only. It can annotate text in a bounded raster crop but never changes geometry, calibration, quantities, rates, or approval.</p>
+              <p id="ocr-status" role="status" data-state="idle" class="text-sm mb-2">OCR idle.</p>
+              <progress id="ocr-progress" max="100" value="0" hidden></progress>
+              <div id="ocr-crop-controls" class="form-row mt-4">
+                <label>Crop X <input id="ocr-crop-x" type="number" step="any" min="0" value="0"></label>
+                <label>Crop Y <input id="ocr-crop-y" type="number" step="any" min="0" value="0"></label>
+                <label>Crop width <input id="ocr-crop-width" type="number" step="any" min="1" value="200"></label>
+                <label>Crop height <input id="ocr-crop-height" type="number" step="any" min="1" value="100"></label>
+                <label>Rotation <select id="ocr-rotation"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+              </div>
+              <div class="flex gap-2 mt-4">
+                <button id="ocr-run" type="button">Recognize selected crop</button>
+                <button id="ocr-abort" type="button" class="btn-danger" hidden>Stop OCR</button>
+              </div>
+              <p id="ocr-evidence-note" class="text-xs text-muted mt-2">OCR evidence only — every observation retains page, region, run, engine, model, and crop provenance.</p>
+              <div id="ocr-results" aria-live="polite" class="mt-4"></div>
+            </div>
+          </section>
+
+          <!-- ═══ VIEW: ROLLUP ═══ -->
+          <section class="view" id="view-rollup" data-view="rollup">
+            <div class="view-header">
+              <h2>Project rollup</h2>
+              <p>Aggregated quantities across all buildings, storeys, and source documents.</p>
+            </div>
+            <div class="card" id="rollup" hidden>
+              <p id="rollup-summary" class="text-sm text-secondary mb-4"></p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Measurement</th><th>Project quantity</th><th>Building / storey drill-down</th><th>Source provenance</th></tr></thead>
+                  <tbody id="rollup-lines"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═══ VIEW: EXPORT ═══ -->
+          <section class="view" id="view-export" data-view="export">
+            <div class="view-header">
+              <h2>Approve &amp; export</h2>
+              <p>Approve the BOQ version to unlock export. Exported documents are byte-identical reproductions of the approved snapshot.</p>
+            </div>
+            <div class="card">
+              <div id="approval-banner" class="approval-banner blocked">
+                <div>
+                  <p id="approval-state" class="fw-600">No BOQ version ready for approval.</p>
+                  <p id="approval-error" class="text-sm text-secondary mt-2"></p>
+                </div>
+                <button id="approve-boq" type="button" class="btn-success" disabled>Approve BOQ version</button>
+              </div>
+            </div>
+          </section>
+
+        </main>
       </div>
-    </section>
-    <section>
-      <h2>Upload clean DXF, PDF, PNG, or JPEG</h2>
-      <form id="upload-form">
-        <input id="drawing" name="drawing" type="file" accept=".dxf,.pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf" required>
-        <label for="fallback-unit">Fallback unit (only when the DXF unit is missing or unsupported)</label>
-        <select id="fallback-unit" name="fallbackUnit">
-          <option value="">No fallback — require source evidence</option>
-          <option value="millimetres">Millimetres</option>
-          <option value="centimetres">Centimetres</option>
-          <option value="metres">Metres</option>
-        </select>
-        <button type="submit">Create processing run</button>
-      </form>
-      <p id="message" role="status"></p>
-    </section>
-    <section id="raster-workflow" hidden>
-      <h2 id="raster-workflow-title">Raster calibration and tracing</h2>
-      <p id="raster-status">Select two points on the image for calibration.</p>
-      <label>Page <select id="raster-page-select"></select></label>
-      <div id="raster-preview"><img id="raster-image" alt="Raster drawing preview" hidden><canvas id="raster-pdf-canvas" aria-label="PDF raster page preview" hidden></canvas><canvas id="raster-canvas" aria-label="Raster calibration and tracing overlay" role="img" tabindex="0" width="200" height="100"></canvas></div>
-      <div id="raster-keyboard-controls"><p>Keyboard alternative: enter image-space coordinates, then add a calibration or tracing point.</p><label for="raster-point-x">X <input id="raster-point-x" type="number" step="any" inputmode="decimal"></label><label for="raster-point-y">Y <input id="raster-point-y" type="number" step="any" inputmode="decimal"></label><button id="raster-add-point" type="button">Add point</button><button id="raster-clear-points" type="button">Clear points</button></div>
-      <p id="raster-render-error" class="error" role="alert"></p>
-      <div id="raster-calibration-actions">
-        <form id="raster-calibration-form"><label>Reference distance <input id="raster-distance" type="number" min="0" step="any" placeholder="Reference distance" required></label><label>Unit <select id="raster-unit"><option value="m">metres</option><option value="cm">centimetres</option><option value="mm">millimetres</option></select></label><button id="raster-calibration-submit" type="submit">Confirm calibration</button></form>
-        <button id="raster-correct-calibration" type="button" hidden>Correct calibration</button>
-      </div>
-      <label id="raster-category-label">Region category <select id="raster-category"><option value="floor_area">Floor area</option><option value="wall_area">Wall area</option></select></label>
-      <button id="raster-close-region" type="button" disabled>Close traced region</button>
-      <div id="raster-regions" aria-live="polite"></div>
-    </section>
-    <section id="ocr-workflow" hidden>
-      <h2>Optional local OCR</h2>
-      <p>OCR is evidence only. It can annotate text in a bounded raster crop, but it never changes geometry, calibration, quantities, rates, or approval.</p>
-      <p id="ocr-status" role="status" data-state="idle">OCR idle.</p>
-      <progress id="ocr-progress" max="100" value="0" hidden></progress>
-      <div id="ocr-crop-controls">
-        <label>Crop X <input id="ocr-crop-x" type="number" step="any" min="0" value="0"></label>
-        <label>Crop Y <input id="ocr-crop-y" type="number" step="any" min="0" value="0"></label>
-        <label>Crop width <input id="ocr-crop-width" type="number" step="any" min="1" value="200"></label>
-        <label>Crop height <input id="ocr-crop-height" type="number" step="any" min="1" value="100"></label>
-        <label>Rotation <select id="ocr-rotation"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
-      </div>
-      <p><button id="ocr-run" type="button">Recognize selected crop</button> <button id="ocr-abort" type="button" hidden>Stop OCR</button></p>
-      <p id="ocr-evidence-note">OCR evidence only — every observation retains page, region, run, engine, model, and crop provenance.</p>
-      <div id="ocr-results" aria-live="polite"></div>
-    </section>
-    <section id="run" hidden>
-      <h2>Processing run</h2>
-      <div id="run-summary"></div>
-      <button id="reprocess" type="button" hidden>Reprocess this source</button>
-    </section>
-    <section id="pdf-setup" hidden>
-      <h2>Confirm PDF scale and regions</h2>
-      <p>Native PDF geometry is inspected without OCR. Confirm the drawing units per metre and select the regions to measure.</p>
-      <form id="pdf-setup-form">
-        <div id="pdf-pages"></div>
-        <button type="submit">Confirm PDF scale and regions</button>
-      </form>
-    </section>
-    <section id="review" hidden>
-      <h2>Reviewable BOQ</h2>
-      <div id="classification-review" aria-live="polite"></div>
-      <table>
-        <thead><tr><th>Measurement</th><th>Quantity</th><th>Unit</th><th>Confidence evidence</th><th>Measurement status</th><th>Provenance</th></tr></thead>
-        <tbody id="boq-lines"></tbody>
-      </table>
-    </section>
-    <!-- Dev-only review surface (#12/#13). Deliberately unstyled: the real
-     frontend is a later batch and this gets thrown away. Debugging a review
-     workflow through curl is a false economy. -->
-<!-- Dev-only workspace probe (#14). The visual workspace is a later frontend
-     batch; this exists to prove the API, and is deliberately unstyled. -->
-<section id="workspace" hidden>
-  <h2>Workspace probe</h2>
-  <p><label>Line <select id="ws-line"></select></label>
-     <button id="ws-prev" type="button">&larr; prev exception</button>
-     <span id="ws-position"></span>
-     <button id="ws-next" type="button">next exception &rarr;</button></p>
-  <p id="ws-navigate"></p>
-  <p id="ws-breakdown"></p>
-  <p id="ws-tiers"></p>
-  <p id="ws-viewport"></p>
-  <table><thead><tr><th>Sign</th><th>Qty</th><th>Tier</th><th>Source object</th><th>Bounds</th><th>Lines affected</th></tr></thead>
-    <tbody id="ws-contributions"></tbody></table>
-</section>
-<section id="exception-review" hidden>
-  <h2>Exception queue</h2>
-  <p id="queue-ordering"></p>
-  <p id="queue-counts"></p>
-  <table><thead><tr><th>Severity</th><th>What</th><th>Why</th><th>Blocks</th><th>Count</th><th>Resolve</th></tr></thead>
-    <tbody id="queue-rows"></tbody></table>
-  <h3>Approval</h3>
-  <p id="approval-state"></p>
-  <button id="approve-boq" type="button">Approve BOQ version</button>
-  <p id="approval-error"></p>
-</section>
-<section id="rollup" hidden>
-      <h2>Project rollup</h2>
-      <p id="rollup-summary"></p>
-      <table>
-        <thead><tr><th>Measurement</th><th>Project quantity</th><th>Building / storey drill-down</th><th>Source provenance</th></tr></thead>
-        <tbody id="rollup-lines"></tbody>
-      </table>
-    </section>
+    </div>
+
+    <!-- Toast container -->
+    <div id="toast-container"></div>
+
+    <!-- Scripts -->
     <script src="/ocr/model-cache.js" defer></script>
     <script src="/ocr/normalize.js" defer></script>
     <script src="/ocr/vendor/tesseract.js/dist/tesseract.min.js" defer></script>

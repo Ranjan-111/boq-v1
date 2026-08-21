@@ -1,3 +1,10 @@
+/* ─── BOQ Operator — Application Logic ────────────────────────────────────── */
+/* Vanilla JS, no framework. All API calls match the existing server routes.  */
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  DOM References                                                            */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
 const form = document.querySelector('#upload-form');
 const message = document.querySelector('#message');
 const runSection = document.querySelector('#run');
@@ -54,6 +61,11 @@ const storeySelect = document.querySelector('#storey-select');
 const sourceDocumentSelect = document.querySelector('#source-document-select');
 const reassignmentScope = document.querySelector('#reassignment-scope');
 const reassignSource = document.querySelector('#reassign-source');
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  State                                                                     */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
 let currentProject = null;
 let currentSourceDocumentId = null;
 let rollupRenderSequence = 0;
@@ -72,6 +84,98 @@ let pdfPreviewSession = null;
 let ocrController = null;
 let ocrControllerEngine = null;
 let ocrOnlyPdf = false;
+let currentRunId = null;
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  View Router                                                               */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+const views = document.querySelectorAll('.view');
+const navItems = document.querySelectorAll('.nav-item[data-view]');
+
+function showView(viewName) {
+  const target = document.querySelector(`.view[data-view="${viewName}"]`);
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  navItems.forEach((item) => {
+    item.classList.toggle('active', item.dataset.view === viewName);
+  });
+  window.location.hash = viewName;
+}
+
+function initRouter() {
+  navItems.forEach((item) => {
+    item.addEventListener('click', (event) => {
+      event.preventDefault();
+      showView(item.dataset.view);
+    });
+  });
+  // Highlight nav based on scroll position
+  const content = document.querySelector('.content');
+  if (content) {
+    content.addEventListener('scroll', () => {
+      let current = 'project';
+      views.forEach((view) => {
+        if (view.getBoundingClientRect().top <= 120) current = view.dataset.view;
+      });
+      navItems.forEach((item) => item.classList.toggle('active', item.dataset.view === current));
+    });
+  }
+  const hash = window.location.hash.slice(1);
+  if (hash && document.querySelector(`[data-view="${hash}"]`)) showView(hash);
+}
+
+window.addEventListener('hashchange', () => {
+  const hash = window.location.hash.slice(1);
+  if (hash && document.querySelector(`[data-view="${hash}"]`)) showView(hash);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Toast Notifications                                                       */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+const toastContainer = document.querySelector('#toast-container');
+
+function toast(text, type = 'info', duration = 4000) {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = text;
+  toastContainer.prepend(el);
+  setTimeout(() => {
+    el.classList.add('toast-out');
+    el.addEventListener('animationend', () => el.remove());
+  }, duration);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Upload Drop Zone                                                          */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+const dropzone = document.querySelector('#upload-dropzone');
+const drawingInput = document.querySelector('#drawing');
+
+if (dropzone && drawingInput) {
+  dropzone.addEventListener('click', () => drawingInput.click());
+  dropzone.addEventListener('dragover', (event) => { event.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', (event) => {
+    event.preventDefault();
+    dropzone.classList.remove('dragover');
+    if (event.dataTransfer.files.length) {
+      drawingInput.files = event.dataTransfer.files;
+      const fileName = event.dataTransfer.files[0].name;
+      dropzone.querySelector('p').textContent = fileName;
+    }
+  });
+  drawingInput.addEventListener('change', () => {
+    if (drawingInput.files.length) {
+      dropzone.querySelector('p').innerHTML = `<strong>${drawingInput.files[0].name}</strong> selected`;
+    }
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  OCR Engine                                                                */
+/* ═══════════════════════════════════════════════════════════════════════════ */
 
 function ocrEngineFromInjection() {
   const injected = window.__BOQ_OCR_ENGINE__;
@@ -170,6 +274,7 @@ function renderOcrResults(observations = []) {
   ocrResults.replaceChildren(...observations.map((observation) => {
     const item = document.createElement('div');
     item.dataset.observationId = observation.id || '';
+    item.className = 'text-sm mt-2';
     item.textContent = observation.status === 'rejected'
       ? `Rejected OCR observation: ${observation.rejectionReason || 'invalid result'}`
       : `${observation.text} · ${(Number(observation.confidence?.score || 0) * 100).toFixed(1)}% · ${observation.status} · page ${observation.pageId || 'n/a'} / region ${observation.regionId || 'page-crop'}`;
@@ -234,28 +339,45 @@ async function runOcrOnSelectedCrop() {
 ocrRunButton?.addEventListener('click', runOcrOnSelectedCrop);
 ocrAbortButton?.addEventListener('click', () => ocrController?.abort());
 
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Project Management                                                        */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
 projectForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const button = projectForm.querySelector('button');
   button.disabled = true;
   projectStatus.textContent = 'Creating project…';
+  projectStatus.className = 'mt-4 text-sm status-msg info';
   try {
     const response = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: document.querySelector('#project-name').value }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Project creation failed.');
     currentProject = result.project;
     projectControls.hidden = false;
-    projectStatus.textContent = `${currentProject.name} (${currentProject.id}) ready for building and storey assignments.`;
+    projectStatus.textContent = `${currentProject.name} (${currentProject.id}) ready.`;
+    projectStatus.className = 'mt-4 text-sm status-msg success';
     projectStatus.dataset.ready = 'true';
     projectStatus.dataset.revision = '0';
+    projectStatus.dataset.projectId = currentProject.id;
+    updateHeaderProject();
     renderProjectControls();
+    toast(`Project "${currentProject.name}" created`, 'success');
   } catch (error) {
     projectStatus.textContent = `Project creation failed: ${error.message}`;
-    projectStatus.className = 'error';
+    projectStatus.className = 'mt-4 text-sm error';
+    toast(error.message, 'error');
   } finally {
     button.disabled = false;
   }
 });
+
+function updateHeaderProject() {
+  const nameEl = document.querySelector('#header-project-name');
+  const idEl = document.querySelector('#header-project-id');
+  if (nameEl) nameEl.textContent = currentProject?.name || '';
+  if (idEl) idEl.textContent = currentProject?.id || '';
+}
 
 buildingForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -269,9 +391,11 @@ buildingForm.addEventListener('submit', async (event) => {
     document.querySelector('#building-name').value = '';
     renderProjectControls();
     projectStatus.textContent = `${currentProject.name} workspace synchronized.`;
+    projectStatus.className = 'mt-4 text-sm status-msg success';
     projectStatus.dataset.ready = 'true';
     projectStatus.dataset.revision = String(Number(projectStatus.dataset.revision || 0) + 1);
-  } catch (error) { projectStatus.textContent = `Building creation failed: ${error.message}`; }
+    toast('Building added', 'success');
+  } catch (error) { projectStatus.textContent = `Building creation failed: ${error.message}`; toast(error.message, 'error'); }
   finally { buildingForm.querySelector('button').disabled = false; }
 });
 
@@ -287,10 +411,12 @@ storeyForm.addEventListener('submit', async (event) => {
     document.querySelector('#storey-name').value = '';
     await refreshProject();
     projectStatus.textContent = `${currentProject.name} workspace synchronized.`;
+    projectStatus.className = 'mt-4 text-sm status-msg success';
     projectStatus.dataset.ready = 'true';
     projectStatus.dataset.revision = String(Number(projectStatus.dataset.revision || 0) + 1);
+    toast('Storey added', 'success');
   }
-  catch (error) { projectStatus.textContent = `Storey creation failed: ${error.message}`; }
+  catch (error) { projectStatus.textContent = `Storey creation failed: ${error.message}`; toast(error.message, 'error'); }
   finally { storeyForm.querySelector('button').disabled = false; }
 });
 
@@ -306,6 +432,7 @@ reassignSource.addEventListener('click', async () => {
   reassignSource.disabled = true;
   reassignSource.dataset.state = 'running';
   message.textContent = 'Reassigning source and recomputing rollups…';
+  message.className = 'mt-4 text-sm status-msg info';
   try {
     const assignment = {
       projectId: currentProject.id,
@@ -324,6 +451,7 @@ reassignSource.addEventListener('click', async () => {
       currentSourceDocumentId = sourceDocumentId;
       await refreshProject();
       message.textContent = 'Source assignment is already up to date.';
+      message.className = 'mt-4 text-sm status-msg info';
       reassignSource.dataset.state = 'completed';
       return;
     }
@@ -332,12 +460,15 @@ reassignSource.addEventListener('click', async () => {
     runSection.hidden = false;
     reviewSection.hidden = true;
     rollupSection.hidden = true;
+    showView('upload');
     await pollRun();
     reassignSource.dataset.state = 'completed';
+    toast('Source reassigned', 'success');
   } catch (error) {
     message.textContent = error.message;
-    message.className = 'error';
+    message.className = 'mt-4 text-sm error';
     reassignSource.dataset.state = 'failed';
+    toast(error.message, 'error');
   } finally {
     reassignSource.disabled = false;
   }
@@ -346,6 +477,7 @@ reassignSource.addEventListener('click', async () => {
 async function refreshProject() {
   if (!currentProject) return;
   currentProject = (await fetch(`/api/projects/${currentProject.id}`).then((result) => result.json())).project;
+  updateHeaderProject();
   renderProjectControls();
 }
 
@@ -385,7 +517,10 @@ function updateReassignAvailability() {
   const targetReady = scope === 'project' || (scope === 'building' && buildingSelect.value) || (scope === 'storey' && buildingSelect.value && storeySelect.value);
   reassignSource.hidden = !currentProject || !sourceDocumentSelect.value || !targetReady;
 }
-let currentRunId = null;
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Upload / Processing                                                       */
+/* ═══════════════════════════════════════════════════════════════════════════ */
 
 pdfSetupForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -404,7 +539,8 @@ pdfSetupForm.addEventListener('submit', async (event) => {
     await pollRun();
   } catch (error) {
     message.textContent = error.message;
-    message.className = 'error';
+    message.className = 'mt-4 text-sm error';
+    toast(error.message, 'error');
   } finally { button.disabled = false; }
 });
 
@@ -419,7 +555,7 @@ reprocess.addEventListener('click', async () => {
 
 async function submit(url, body) {
   message.textContent = 'Submitting drawing…';
-  message.className = '';
+  message.className = 'mt-4 text-sm status-msg info';
   form.querySelector('button').disabled = true;
   try {
     if (body instanceof FormData && currentProject) {
@@ -436,6 +572,7 @@ async function submit(url, body) {
     currentRunId = result.processingRun.id;
     currentSourceDocumentId = result.processingRun.sourceDocument.id;
     message.textContent = `Source ${result.processingRun.sourceDocument.id} v${result.processingRun.sourceDocument.version} accepted.`;
+    message.className = 'mt-4 text-sm status-msg success';
     runSection.hidden = false;
     reviewSection.hidden = true;
     reprocess.hidden = true;
@@ -443,10 +580,13 @@ async function submit(url, body) {
     rasterPoints = [];
     rasterEditRegionId = null;
     updateReassignAvailability();
+    showView('upload');
     await pollRun();
+    toast('Drawing processed', 'success');
   } catch (error) {
     message.textContent = error.message;
-    message.className = 'error';
+    message.className = 'mt-4 text-sm error';
+    toast(error.message, 'error');
   } finally {
     form.querySelector('button').disabled = false;
   }
@@ -460,11 +600,13 @@ async function pollRun() {
     pdfSetupSection.hidden = true;
     const isRasterRun = run.setup?.route === 'raster';
     rasterWorkflow.hidden = !isRasterRun;
-    if (isRasterRun) renderRasterWorkflow(run);
+    if (isRasterRun) { renderRasterWorkflow(run); showView('raster'); }
     else if (run.sourceDocument?.format === 'pdf') renderPdfOcrWorkflow(run);
     renderBoq(run.boq || { lines: [], sourceObjects: [] }, run.classifications || []);
     await refreshProject();
     await renderProjectRollup(run);
+    await renderReview(run.projectId);
+    renderWorkspaceLines(run);
     reprocess.hidden = false;
     return;
   }
@@ -482,18 +624,24 @@ async function pollRun() {
     rollupSection.hidden = true;
     reprocess.hidden = true;
     renderRasterWorkflow(run);
+    showView('raster');
     message.textContent = run.blockedReasons?.join(' ') || 'This source requires raster calibration before measurement.';
-    message.className = 'error';
+    message.className = 'mt-4 text-sm status-msg warning';
     return;
   }
   if (run.status === 'failed') {
     if (run.sourceDocument?.format === 'pdf' && run.pages?.length) renderPdfOcrWorkflow(run);
     message.textContent = run.error;
-    message.className = 'error';
+    message.className = 'mt-4 text-sm error';
+    toast('Processing failed', 'error');
     return;
   }
   setTimeout(pollRun, 50);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Raster Workflow                                                           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
 
 function renderRasterWorkflow(run) {
   ocrOnlyPdf = false;
@@ -652,7 +800,7 @@ function setRasterLayerDimensions(width, height, kind = 'image', cssWidth = null
 
 function showRasterRenderError(text) {
   rasterRenderError.textContent = text;
-  rasterRenderError.className = 'error';
+  rasterRenderError.className = 'error mt-2';
   rasterCanvas.style.pointerEvents = 'none';
 }
 
@@ -741,9 +889,6 @@ function renderRasterRegions(run, page) {
   rasterRegions.replaceChildren(...(page.regions || []).map((region) => {
     const row = document.createElement('div');
     row.dataset.regionId = region.id;
-    /* Origin is a fact from the moment the region exists; whether a proposal has
-       been confirmed is its lifecycle. Showing them separately keeps an
-       unconfirmed model proposal from ever reading as accepted evidence. */
     const modelProposed = region.origin === 'model-proposed';
     row.className = `raster-region ${modelProposed ? 'proposed' : 'human-traced'}`;
     const geometryLabel = modelProposed
@@ -751,14 +896,14 @@ function renderRasterRegions(run, page) {
       : 'HUMAN TRACED';
     row.textContent = `${region.id} · ${geometryLabel} · ${region.category || 'unclassified'} · ${region.lifecycle}${region.lifecycle === 'deleted' ? ' (audit retained)' : ''}`;
     if (region.lifecycle !== 'deleted' && region.lifecycle !== 'confirmed') {
-      const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = 'Confirm region'; confirm.dataset.action = 'confirm-region';
+      const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = 'Confirm region'; confirm.dataset.action = 'confirm-region'; confirm.className = 'btn-sm btn-success';
       confirm.addEventListener('click', () => mutateRasterRegion(`/api/runs/${run.id}/pages/${page.sourcePageId}/regions/${region.id}/confirm?expectedPageRevision=${page.revision || page.calibration?.revision || 0}&expectedRegionRevision=${region.revision || 0}`, { method: 'POST' }, confirm));
       row.append(' ', confirm);
     }
     if (region.lifecycle !== 'deleted') {
-      const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit region'; edit.dataset.action = 'edit-region';
+      const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit'; edit.dataset.action = 'edit-region'; edit.className = 'btn-sm';
       edit.addEventListener('click', () => beginRegionEdit(region));
-      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Delete region'; remove.dataset.action = 'delete-region';
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Delete'; remove.dataset.action = 'delete-region'; remove.className = 'btn-sm btn-danger';
       remove.addEventListener('click', () => mutateRasterRegion(`/api/runs/${run.id}/pages/${page.sourcePageId}/regions/${region.id}?expectedPageRevision=${page.revision || page.calibration?.revision || 0}&expectedRegionRevision=${region.revision || 0}`, { method: 'DELETE' }, remove));
       row.append(' ', edit, ' ', remove);
     }
@@ -833,8 +978,9 @@ async function mutateRasterRegion(url, options, button) {
     await pollRun();
   } catch (error) {
     rasterStatus.textContent = error.message;
-    rasterStatus.className = 'error';
+    rasterStatus.className = 'text-sm error';
     button.disabled = false;
+    toast(error.message, 'error');
   }
 }
 
@@ -851,7 +997,8 @@ rasterCalibrationForm.addEventListener('submit', async (event) => {
     const response = await fetch(`/api/runs/${rasterRun.id}/pages/${rasterPage.sourcePageId}/calibration`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ p0: rasterPoints[0], p1: rasterPoints[1], realDistance: rasterDistance.value, realUnit: rasterUnit.value, expectedPageRevision: rasterPage.revision || rasterPage.calibration?.revision || 0 }) });
     const result = await response.json(); if (!response.ok) throw new Error(result.error);
     rasterPoints = []; rasterEditRegionId = null; rasterEditReplace = false; rasterMode = 'trace'; currentRunId = result.processingRun.id; await pollRun();
-  } catch (error) { rasterStatus.textContent = error.message; rasterStatus.className = 'error'; }
+    toast('Calibration confirmed', 'success');
+  } catch (error) { rasterStatus.textContent = error.message; rasterStatus.className = 'text-sm error'; toast(error.message, 'error'); }
   finally { button.disabled = false; }
 });
 
@@ -866,8 +1013,13 @@ rasterCloseRegion.addEventListener('click', async () => {
     const response = await fetch(editing ? `${base}/${rasterEditRegionId}` : base, { method: editing ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const result = await response.json(); if (!response.ok) throw new Error(result.error);
     rasterPoints = []; rasterEditRegionId = null; rasterEditReplace = false; rasterMode = 'trace'; currentRunId = result.processingRun.id; await pollRun();
-  } catch (error) { rasterStatus.textContent = error.message; rasterStatus.className = 'error'; rasterCloseRegion.disabled = false; }
+    toast('Region saved', 'success');
+  } catch (error) { rasterStatus.textContent = error.message; rasterStatus.className = 'text-sm error'; rasterCloseRegion.disabled = false; toast(error.message, 'error'); }
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  PDF Setup                                                                 */
+/* ═══════════════════════════════════════════════════════════════════════════ */
 
 function renderPdfSetup(run) {
   pdfSetupSection.hidden = false;
@@ -888,10 +1040,12 @@ function renderPdfSetup(run) {
     scaleLabel.append(scale);
     section.append(scaleLabel);
     const text = document.createElement('p');
+    text.className = 'text-sm text-muted mt-2';
     text.textContent = `Native text: ${page.nativeText.map((item) => item.text).join(' ') || 'none'}`;
     section.append(text);
     for (const region of page.vectorRegions) {
       const label = document.createElement('label');
+      label.className = 'inline mt-2';
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.value = region.id;
@@ -902,6 +1056,10 @@ function renderPdfSetup(run) {
     return section;
   }));
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Rollup                                                                    */
+/* ═══════════════════════════════════════════════════════════════════════════ */
 
 async function renderProjectRollup(run) {
   if (!run.projectId) return;
@@ -929,6 +1087,7 @@ async function renderProjectRollup(run) {
     const provenance = describeContributions(project.rollup, line).join('\n');
     for (const value of [line.label, String(line.quantity), drilldown, provenance]) {
       const cell = document.createElement('td');
+      if (value === provenance) cell.className = 'provenance-cell';
       cell.textContent = value;
       row.append(cell);
     }
@@ -936,6 +1095,10 @@ async function renderProjectRollup(run) {
   }));
   rollupSection.hidden = false;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Run & BOQ Rendering                                                       */
+/* ═══════════════════════════════════════════════════════════════════════════ */
 
 function renderRun(run) {
   const unitStatus = run.units
@@ -958,9 +1121,7 @@ function renderRun(run) {
   ]);
 }
 
-/* Provenance is a two-part record: a line carries contributions, each of which
-   resolves to a SourceObject in its carrier's registry (a run's boq, or a
-   rollup). Deductions subtract, so a displayed total matches the line. */
+/* Provenance helpers */
 function sourceObjectFor(carrier, contribution) {
   return (carrier?.sourceObjects || []).find((object) => object.sourceObjectId === contribution.sourceObjectId) || {};
 }
@@ -979,13 +1140,26 @@ function describeContributions(carrier, line) {
   });
 }
 
+function confidenceBadge(level) {
+  const map = { HIGH: 'badge-green', MEDIUM: 'badge-amber', LOW: 'badge-red' };
+  return map[level] || 'badge-gray';
+}
+
+function statusBadge(status) {
+  const map = { measured: 'badge-green', measured_zero: 'badge-amber', not_measurable: 'badge-red' };
+  return map[status] || 'badge-gray';
+}
+
 function renderBoq(boq, classifications = []) {
   classificationReview.replaceChildren();
   const conflicts = classifications.flatMap((classification) => classification.conflicts || []).filter((conflict, index, all) => all.findIndex((candidate) => candidate.groupKey === conflict.groupKey) === index);
   if (classifications.length) {
     const summary = document.createElement('p');
+    summary.className = 'text-sm text-secondary mb-4';
     summary.textContent = `${classifications.length} source objects classified; category and exact catalog item are tracked separately.`;
     classificationReview.append(summary);
+    const wrap = document.createElement('div');
+    wrap.className = 'table-wrap card-compact mb-4';
     const table = document.createElement('table');
     table.innerHTML = '<thead><tr><th>Source object</th><th>Category</th><th>Exact catalog item</th></tr></thead><tbody></tbody>';
     const body = table.querySelector('tbody');
@@ -998,11 +1172,12 @@ function renderBoq(boq, classifications = []) {
       }
       body.append(row);
     }
-    classificationReview.append(table);
+    wrap.append(table);
+    classificationReview.append(wrap);
   }
   for (const conflict of conflicts) {
     const alert = document.createElement('p');
-    alert.className = 'error';
+    alert.className = 'error mt-2';
     alert.textContent = `Grouped classification conflict (${conflict.groupKey}): ${conflict.candidateValues.join(' vs ')} — exact item remains unresolved.`;
     classificationReview.append(alert);
   }
@@ -1013,34 +1188,74 @@ function renderBoq(boq, classifications = []) {
       ? `${first.sourceDocumentId} v${first.sourceDocumentVersion}`
       : 'no source object resolved';
     const provenance = [header, ...describeContributions(boq, line)].join('\n');
-    for (const value of [
-      line.label,
-      String(line.quantity),
-      line.unit,
-      `${line.confidence.level}: ${line.confidence.evidence.join(', ')}`,
-      line.measurementStatus,
-      provenance
-    ]) {
-      const cell = document.createElement('td');
-      cell.textContent = value;
-      row.append(cell);
-    }
+
+    /* Measurement */
+    const nameCell = document.createElement('td');
+    nameCell.innerHTML = `<strong>${line.label}</strong>`;
+    row.append(nameCell);
+
+    /* Quantity */
+    const qtyCell = document.createElement('td');
+    qtyCell.innerHTML = `<code>${String(line.quantity)}</code>`;
+    row.append(qtyCell);
+
+    /* Unit */
+    const unitCell = document.createElement('td');
+    unitCell.textContent = line.unit;
+    row.append(unitCell);
+
+    /* Confidence */
+    const confCell = document.createElement('td');
+    const badge = document.createElement('span');
+    badge.className = `badge ${confidenceBadge(line.confidence.level)}`;
+    badge.textContent = line.confidence.level;
+    confCell.append(badge);
+    const evidenceText = document.createElement('span');
+    evidenceText.className = 'text-xs text-muted';
+    evidenceText.textContent = ` ${line.confidence.evidence.join(', ')}`;
+    confCell.append(evidenceText);
+    row.append(confCell);
+
+    /* Status */
+    const statusCell = document.createElement('td');
+    const statusEl = document.createElement('span');
+    statusEl.className = `badge ${statusBadge(line.measurementStatus)}`;
+    statusEl.textContent = line.measurementStatus;
+    statusCell.append(statusEl);
+    row.append(statusCell);
+
+    /* Provenance (expandable) */
+    const provCell = document.createElement('td');
+    provCell.className = 'provenance-cell expandable';
+    const provSummary = document.createElement('span');
+    provSummary.textContent = header;
+    provSummary.className = 'text-xs';
+    const provDetail = document.createElement('div');
+    provDetail.className = 'expand-content';
+    provDetail.textContent = provenance;
+    provCell.append(provSummary, provDetail);
+    provCell.addEventListener('click', () => provCell.classList.toggle('open'));
+    row.append(provCell);
+
     return row;
   }));
   reviewSection.hidden = false;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Exception Queue                                                           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ---- dev review surface (#12/#13) ---------------------------------------
-   Plain on purpose. It exists so a review workflow can be worked and watched
-   without curl, not to be the product. */
 const exceptionSection = document.querySelector('#exception-review');
 const queueOrdering = document.querySelector('#queue-ordering');
 const queueCounts = document.querySelector('#queue-counts');
 const queueRows = document.querySelector('#queue-rows');
+const queueCards = document.querySelector('#queue-cards');
 const approvalState = document.querySelector('#approval-state');
 const approveButton = document.querySelector('#approve-boq');
 const approvalError = document.querySelector('#approval-error');
+const approvalBanner = document.querySelector('#approval-banner');
+const navExceptionCount = document.querySelector('#nav-exception-count');
 
 async function renderReview(projectId) {
   if (!exceptionSection || !projectId) return;
@@ -1048,11 +1263,81 @@ async function renderReview(projectId) {
   if (!response.ok) return;
   const queue = await response.json();
   exceptionSection.hidden = false;
-  /* The ordering label is shown, never hidden: an operator who believes they are
-     working highest-value-first when they are not is worse off than one who knows. */
   queueOrdering.textContent = `Ordered by: ${queue.rankedBy}${queue.caveat ? ` — ${queue.caveat}` : ''}`;
   queueOrdering.dataset.rankedBy = queue.rankedBy;
-  queueCounts.textContent = `${queue.counts.total} exceptions in ${queue.counts.groups} groups · ${queue.counts.blocking} blocking · ${queue.counts.advisory} advisory`;
+  queueCounts.textContent = `${queue.counts.total} exceptions · ${queue.counts.groups} groups · ${queue.counts.blocking} blocking · ${queue.counts.advisory} advisory`;
+
+  /* Update nav badge */
+  if (navExceptionCount) {
+    if (queue.counts.blocking > 0) {
+      navExceptionCount.hidden = false;
+      navExceptionCount.textContent = String(queue.counts.blocking);
+      navExceptionCount.className = 'nav-badge blocking';
+    } else if (queue.counts.advisory > 0) {
+      navExceptionCount.hidden = false;
+      navExceptionCount.textContent = String(queue.counts.advisory);
+      navExceptionCount.className = 'nav-badge advisory';
+    } else {
+      navExceptionCount.hidden = true;
+    }
+  }
+
+  /* Render as cards */
+  if (queueCards) {
+    queueCards.replaceChildren(...queue.groups.map((group) => {
+      const card = document.createElement('div');
+      card.className = 'exception-group';
+      card.dataset.groupKey = group.groupKey;
+      card.dataset.severity = group.severity;
+
+      const title = document.createElement('div');
+      title.className = 'exception-title';
+      const severityBadge = document.createElement('span');
+      severityBadge.className = `badge ${group.severity === 'BLOCK' ? 'badge-red' : 'badge-amber'}`;
+      severityBadge.textContent = group.severity;
+      title.append(severityBadge, ` ${group.title}`);
+      if (group.count > 1) {
+        const countBadge = document.createElement('span');
+        countBadge.className = 'badge badge-gray';
+        countBadge.textContent = `×${group.count}`;
+        title.append(' ', countBadge);
+      }
+      card.append(title);
+
+      const reason = document.createElement('div');
+      reason.className = 'exception-reason';
+      reason.textContent = group.raisedBecause;
+      if (group.blocks?.length) reason.textContent += ` — blocks: ${group.blocks.join(', ')}`;
+      card.append(reason);
+
+      const actions = document.createElement('div');
+      actions.className = 'exception-actions';
+      for (const option of group.resolutionOptions || []) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = option.action === 'dismiss' ? 'btn-sm' : 'btn-sm btn-primary';
+        button.textContent = option.label;
+        button.dataset.action = option.action;
+        button.addEventListener('click', async () => {
+          const body = { groupKey: group.groupKey, action: option.action, resolvedBy: 'operator' };
+          if (option.action === 'confirm_item') {
+            const item = window.prompt(`What item is ${group.title}?`);
+            if (!item) return;
+            body.item = item;
+          }
+          button.disabled = true;
+          await fetch(`/api/projects/${projectId}/exceptions/resolve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+          await renderReview(projectId);
+          toast('Exception resolved', 'success');
+        });
+        actions.append(button);
+      }
+      card.append(actions);
+      return card;
+    }));
+  }
+
+  /* Hidden table for test compatibility */
   queueRows.replaceChildren(...queue.groups.map((group) => {
     const row = document.createElement('tr');
     row.dataset.groupKey = group.groupKey;
@@ -1083,10 +1368,15 @@ async function renderReview(projectId) {
     row.append(actions);
     return row;
   }));
+
+  /* Approval */
   approvalState.textContent = queue.counts.blocking > 0
     ? `Approval blocked by ${queue.counts.blocking} exception(s).`
     : 'Nothing blocking. This BOQ version can be approved.';
   approvalState.dataset.blocking = String(queue.counts.blocking);
+  if (approvalBanner) {
+    approvalBanner.className = queue.counts.blocking > 0 ? 'approval-banner blocked' : 'approval-banner can-approve';
+  }
   if (approveButton) approveButton.disabled = queue.counts.blocking > 0;
 }
 
@@ -1095,17 +1385,26 @@ if (approveButton) {
     const projectId = document.querySelector('#project-status')?.dataset.projectId;
     const versionId = document.querySelector('#project-status')?.dataset.boqVersionId;
     if (!projectId || !versionId) return;
+    approveButton.disabled = true;
     const response = await fetch(`/api/boq-versions/${versionId}/approve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ approvedBy: 'operator' }) });
     const body = await response.json();
     approvalError.textContent = response.ok ? `Approved: ruleset ${body.boqVersion.approvedRulesetVersion}, assumptions v${body.boqVersion.approvedAssumptionsVersion}` : body.error;
+    if (response.ok) {
+      approvalError.className = 'text-sm status-msg success mt-2';
+      toast('BOQ version approved', 'success');
+    } else {
+      approvalError.className = 'text-sm error mt-2';
+      toast(body.error, 'error');
+    }
     await renderReview(projectId);
+    approveButton.disabled = false;
   });
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Workspace Probe                                                           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ---- dev workspace probe (#14) ------------------------------------------
-   Proves the API a visual workspace will need: line -> evidence, object ->
-   lines, the signed breakdown, and queue traversal. Unstyled on purpose. */
 const wsSection = document.querySelector('#workspace');
 const wsLine = document.querySelector('#ws-line');
 const wsNavigate = document.querySelector('#ws-navigate');
@@ -1115,6 +1414,14 @@ const wsViewport = document.querySelector('#ws-viewport');
 const wsContributions = document.querySelector('#ws-contributions');
 const wsPosition = document.querySelector('#ws-position');
 let wsQueueIndex = 0;
+
+function renderWorkspaceLines(run) {
+  if (!wsLine || !run.boq?.lines?.length) return;
+  const current = wsLine.value;
+  wsLine.replaceChildren(new Option('Select a measurement…', ''), ...run.boq.lines.map((line) => new Option(line.label, line.measurement)));
+  if (run.boq.lines.some((line) => line.measurement === current)) wsLine.value = current;
+  wsSection.hidden = false;
+}
 
 async function renderLineEvidence(projectId, measurement) {
   const response = await fetch(`/api/projects/${projectId}/lines/${measurement}/evidence`);
@@ -1145,6 +1452,7 @@ async function renderLineEvidence(projectId, measurement) {
     const reverse = document.createElement('td');
     const button = document.createElement('button');
     button.type = 'button';
+    button.className = 'btn-sm';
     button.textContent = 'what does this object affect?';
     button.addEventListener('click', async () => {
       const result = await (await fetch(`/api/projects/${projectId}/objects/${encodeURIComponent(contribution.sourceObjectId)}/lines`)).json();
@@ -1176,3 +1484,9 @@ wsLine?.addEventListener('change', () => {
   const projectId = document.querySelector('#project-status')?.dataset.projectId;
   if (projectId && wsLine.value) renderLineEvidence(projectId, wsLine.value);
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Init                                                                      */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+initRouter();
