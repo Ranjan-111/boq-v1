@@ -3,7 +3,7 @@
 **Baseline commit:** see `git log -1` — the R2 unified provenance record.
 **Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`,
 then replacing the two per-tier provenance shapes with one record (R2).
-**Suite:** 301 tests, all passing together (`npm test`).
+**Suite:** 317 tests, all passing together (`npm test`).
 
 ## What `main` now contains
 
@@ -42,6 +42,7 @@ src/vendors.js        eligible vendor offers (#16)
 src/catalogue.js      studio item catalogue: measurement -> BOQ item (#24)
 src/export.js         reproducible approved exports, CSV + XLSX + sidecar (#17)
 src/workspace.js      line<->object evidence, signed breakdown, viewports (#14)
+src/validation/       E0/E1 validation harness -- read-only tooling for #19
 src/classification.js evidence fusion, studio mappings, stable digest()
 src/dxf.js            DXF parse, unit resolution, measurement rules
 src/ocr-results.js    OCR normalization, forbidden-field enforcement
@@ -746,6 +747,69 @@ who cannot tie the column distrusts the document and "the total doesn't add up" 
 indefensible to a contractor. The exact figure is computed alongside as `exactAmount` /
 `exactRounded` and carried in the provenance sidecar. Every internal total still
 accumulates exact.
+
+## Validation harness (#19 tooling) — implemented; #19 itself stays blocked
+
+#19 needs real DXFs and a studio's past BOQ. That block is real. The machinery
+that runs the day those arrive is built and proven against synthetic stand-ins,
+so there is no engineering delay left in it — **but nothing here validates the
+product.** Only real drawings do that.
+
+**Read-only.** No measurement module imports `src/validation/`, and a test pins
+that. Running either harness leaves quantities byte-identical.
+
+### One command
+
+```
+node scripts/validation/validate.mjs --drawings <dir> [--ground-truth <file>] [--json <out>]
+```
+
+Exit code is non-zero only on a disqualifying E0 finding. A low E1 percentage is a
+product decision, not a broken build.
+
+### E1 — classification coverage
+
+What fraction of entities classify from layer, hatch and block name alone, with no
+vision call. Uses `layerCategory` and `blockCategory` straight from `src/dxf.js`;
+reimplementing them would measure the harness rather than the product.
+
+Verified against the synthetic corpus, hand-checked **before** the harness existed:
+
+| fixture | classified | % |
+|---|---|---|
+| `clean-plan.dxf` | 15 / 15 | 100.0 |
+| `residual-blocks.dxf` | 14 / 15 | 93.3 |
+| `garbage-layers.dxf` | 8 / 15 | 53.3 |
+| `garbage-and-exploded.dxf` | 4 / 15 | 26.7 |
+| aggregate over `test/fixtures` | 129 / 148 | 87.2 |
+
+**Per category, not one aggregate** — an aggregate hides a category collapsing.
+`garbage-layers.dxf` shows walls and floors at **zero** while openings and furniture
+survive on block names, which a single 53.3% would conceal.
+
+A category reports **how many entities classified into it**, not a rate. There is no
+honest denominator: an unclassified entity has no known category — that is what makes
+it unclassified — so a per-category rate would count only its own successes and always
+read 100%. My first cut did exactly that and the tests caught it.
+
+The go/no-go bands (>70 / 40–70 / <40) are reported as a **named band with its
+caveat**, never as a verdict.
+
+### E0 — ground-truth comparison
+
+A hand-prepared takeoff in a plain CSV (or JSON) a non-engineer fills from their own
+BOQ; a template ships at `scripts/validation/ground-truth-template.csv`. A **blank cell
+is refused**, not read as zero — `Number('')` is `0`, which would turn an unfilled row
+into a claim the studio measured nothing.
+
+Output extends #18's four-outcome ledger rather than inventing a second vocabulary:
+correct / flagged uncertainty / confidently wrong / unflagged financial error, now
+against a real answer. A measurement the pipeline does not produce is reported as
+flagged uncertainty with `actual: null`, never dropped.
+
+**No accuracy percentage is computed anywhere in the E0 path**, and a test asserts the
+absence of the field — the same discipline #18 established. Per-category deltas only: a
+delta per category is checkable, a single number is not.
 
 ## Known gaps (not regressions — never built)
 

@@ -16,6 +16,20 @@ never be reported as a satisfied one.
 
 ## Carried limitations
 
+- **#19 is not closed and cannot be.** The E0/E1 harness is built and proven against
+  synthetic fixtures, but every figure the product has ever produced is measured against
+  fixtures we wrote. No real studio drawing has been through it. The harness removes the
+  engineering delay, not the evidence gap.
+- **E1 counts classification, not measurability.** `exploded-furniture.dxf` classifies
+  100% -- the polylines sit on a furniture layer -- while `furniture_count` is
+  `not_measurable`, because no rule measures a furniture polyline. A high E1 percentage
+  does not by itself mean a drawing will produce a BOQ.
+- **E0 matches ground truth by internal measurement name.** A studio's takeoff will be
+  worded their way, so someone must map their rows to ours when filling the template.
+  The catalogue (#24) is where that mapping belongs once real books exist.
+- **One ground truth covers one drawing.** Comparing a folder against a multi-drawing
+  takeoff needs a per-file key the format does not yet have.
+
 - **A viewport for point-bounds objects is an invented extent.** An unresolved block
   reference has no measurable size, so the workspace widens to a minimum and flags
   `degenerate: true`. Resolving block extents properly (the `BLOCKS` expansion 3a

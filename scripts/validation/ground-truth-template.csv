@@ -1,0 +1,10 @@
+measurement,quantity,unit,notes
+floor_area,,m²,Copy your own takeoff figure here. Leave the row out if you did not measure it — a blank is not zero.
+wall_plan,,m²,
+wall_masonry,,m³,
+wall_plaster,,m²,
+skirting,,m,
+room_count,,nos,
+door_count,,nos,
+window_count,,nos,
+furniture_count,,nos,
