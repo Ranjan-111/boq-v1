@@ -7,12 +7,27 @@ const { createRepository } = require('../src/repository');
 const residualPlan = readFileSync(`${__dirname}/fixtures/residual-blocks.dxf`);
 const cleanPlan = readFileSync(`${__dirname}/fixtures/clean-plan.dxf`);
 const sync = (options = {}) => createApplication({ schedule: (callback) => callback(), ...options });
+/* Approval now requires every measurement to map to a catalogue item (#24):
+   a BOQ whose rows have no client-facing description cannot be approved. */
+const FULL_CATALOGUE = { studioId: 'studio_alpha', items: [
+  { code: 'STR-WP-001', description: 'Wall footprint, plan area', unit: 'm\u00b2', measurement: 'wall_plan' },
+  { code: 'STR-WL-001', description: 'Brick masonry in cement mortar 1:6', unit: 'm\u00b3', measurement: 'wall_masonry' },
+  { code: 'FIN-WL-002', description: 'Cement plaster 12mm to internal walls', unit: 'm\u00b2', measurement: 'wall_plaster' },
+  { code: 'FIN-FL-001', description: 'Vitrified tile flooring 600x600', unit: 'm\u00b2', measurement: 'floor_area' },
+  { code: 'FIN-SK-001', description: 'Skirting, 100mm', unit: 'm', measurement: 'skirting' },
+  { code: 'GEN-RM-001', description: 'Rooms enumerated', unit: 'nos', measurement: 'room_count' },
+  { code: 'GEN-DR-001', description: 'Door openings enumerated', unit: 'nos', measurement: 'door_count' },
+  { code: 'GEN-WN-001', description: 'Window openings enumerated', unit: 'nos', measurement: 'window_count' },
+  { code: 'GEN-FR-001', description: 'Loose furniture enumerated', unit: 'nos', measurement: 'furniture_count' }
+] };
+
 
 function workspace({ content = residualPlan, ...options } = {}) {
   const application = sync(options);
   const project = application.createProject({ name: 'Review project' });
   const source = application.createSourceDocument({ filename: 'plan.dxf', content, projectId: project.id, sourceSheet: 'A-PLAN', studioId: 'studio_alpha' });
   const run = application.getRun(application.startProcessing(source.id).id);
+  application.publishCatalogue(project.id, FULL_CATALOGUE);
   return { application, project, source, run };
 }
 

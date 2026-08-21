@@ -6,14 +6,29 @@ const { DEFAULT_RULESET_VERSION } = require('../src/rules');
 
 const cleanPlan = readFileSync(`${__dirname}/fixtures/clean-plan.dxf`, 'utf8');
 const sync = () => createApplication({ schedule: (callback) => callback() });
+/* Approval now requires every measurement to map to a catalogue item (#24):
+   a BOQ whose rows have no client-facing description cannot be approved. */
+const FULL_CATALOGUE = { studioId: 'studio_alpha', items: [
+  { code: 'STR-WP-001', description: 'Wall footprint, plan area', unit: 'm\u00b2', measurement: 'wall_plan' },
+  { code: 'STR-WL-001', description: 'Brick masonry in cement mortar 1:6', unit: 'm\u00b3', measurement: 'wall_masonry' },
+  { code: 'FIN-WL-002', description: 'Cement plaster 12mm to internal walls', unit: 'm\u00b2', measurement: 'wall_plaster' },
+  { code: 'FIN-FL-001', description: 'Vitrified tile flooring 600x600', unit: 'm\u00b2', measurement: 'floor_area' },
+  { code: 'FIN-SK-001', description: 'Skirting, 100mm', unit: 'm', measurement: 'skirting' },
+  { code: 'GEN-RM-001', description: 'Rooms enumerated', unit: 'nos', measurement: 'room_count' },
+  { code: 'GEN-DR-001', description: 'Door openings enumerated', unit: 'nos', measurement: 'door_count' },
+  { code: 'GEN-WN-001', description: 'Window openings enumerated', unit: 'nos', measurement: 'window_count' },
+  { code: 'GEN-FR-001', description: 'Loose furniture enumerated', unit: 'nos', measurement: 'furniture_count' }
+] };
+
 
 function workspace() {
   const application = sync();
   const project = application.createProject({ name: 'Assumption project' });
   const building = application.createBuilding({ projectId: project.id, name: 'B' });
   const storey = application.createStorey({ buildingId: building.id, name: 'G' });
-  const source = application.createSourceDocument({ filename: 'clean-plan.dxf', content: cleanPlan, projectId: project.id, buildingId: building.id, storeyId: storey.id, sourceSheet: 'A-PLAN' });
+  const source = application.createSourceDocument({ filename: 'clean-plan.dxf', content: cleanPlan, projectId: project.id, buildingId: building.id, storeyId: storey.id, sourceSheet: 'A-PLAN', studioId: 'studio_alpha' });
   const run = application.startProcessing(source.id);
+  application.publishCatalogue(project.id, FULL_CATALOGUE);
   return { application, project, building, storey, source, run };
 }
 const rollupLine = (application, projectId, measurement) =>

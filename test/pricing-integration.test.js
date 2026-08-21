@@ -162,3 +162,21 @@ test('selecting an expired offer is refused', () => {
   const expired = application.recordVendorOffer(project.id, { vendorId: 'v1', vendorName: 'Alpha', itemCode: 'floor_area', unit: 'm²', amount: 1700, currency: 'INR', validFrom: '2025-01-01', validTo: '2025-06-30', source: { label: 'Q', suppliedBy: 'p' } });
   assert.throws(() => application.selectVendorOffer(project.id, { itemCode: 'floor_area', offerId: expired.id, selectedBy: 'lead', on: '2026-06-01' }), /expired|not eligible|valid/i);
 });
+
+test('an expired rate is still detected once a catalogue maps measurements to item codes', () => {
+  // Regression: rates price catalogue item codes, so a staleness check that looks
+  // up by measurement name finds nothing and silently stops blocking.
+  const { application, project } = workspace();
+  application.publishCatalogue(project.id, { studioId: 'studio_alpha', items: [
+    { code: 'FIN-FL-001', description: 'Vitrified tile flooring', unit: 'm²', measurement: 'floor_area' }
+  ] });
+  application.publishRateBook(project.id, liveRates({ rates: [
+    { itemCode: 'FIN-FL-001', unit: 'm²', amount: 1800, validFrom: '2025-01-01', validTo: '2025-12-31' }
+  ] }));
+  const queue = application.getExceptionQueue(project.id, { on: '2026-06-01' });
+  const stale = queue.exceptions.find((exception) => exception.type === 'stale_rate');
+  assert.ok(stale, 'the expired rate is found through the catalogue mapping');
+  assert.equal(stale.measurement, 'floor_area');
+  const boqVersionId = application.getProjectAssumptions(project.id).currentBoqVersionId;
+  assert.throws(() => application.approveBoqVersion(boqVersionId, { approvedBy: 'qs', on: '2026-06-01' }), /blocking exception/i);
+});

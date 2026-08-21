@@ -12,7 +12,7 @@ never be reported as a satisfied one.
 | # | Question | State |
 |---|---|---|
 | Q8 | Can a stale rate or vendor reach an export? | **Answered** by #15/#16: a rate outside its validity window raises a blocking exception and cannot be approved. No export surface exists yet, so the export half is covered by the approval gate. |
-| Q9 | Can an unresolved BOQ be exported? | **Open** — no export surface exists (#17). `exportable` and the approval gate are both honest today, but nothing consumes them. |
+| Q9 | Can an unresolved BOQ be exported? | **Answered** by #17: export is refused for anything that is not an approved BOQ version, and approval is already blocked by open exceptions, stale rates and unmapped measurements. Demonstrated, not asserted. |
 
 ## Carried limitations
 
@@ -38,12 +38,21 @@ never be reported as a satisfied one.
   supplier list hold separate rows. Correct for scoping, wasteful at scale.
 - **No published schedule of rates is bundled.** Import path only; licensing for any
   government schedule is unverified, so none is embedded in the repository.
-- **Rate lookup matches on `itemCode` equal to the measurement name.** There is no
-  catalogue mapping between a measured item and a priced one, so a rate book must use
-  the measurement names. Real rate books will not, and #17 or a later batch needs a
-  mapping layer.
-- **Locality matching is exact-string.** A rate scoped to "Bengaluru" does not match a
-  project in "Bangalore". No locality hierarchy or aliasing exists.
+- **Locality aliases are a fixed table, not a hierarchy.** Bengaluru/Bangalore and
+  friends normalise, but there is no state or region containment, so a rate scoped to
+  "Karnataka" will not match a project in "Mysuru".
+- **The printed total is not the sum of the printed row amounts.** Rows are presented
+  rounded while the total rounds once from exact values, per #15's rule. On a large BOQ
+  a client adding the column by hand may differ by a few paise. The rule is deliberate;
+  which figure a delivered document leads with is a commercial decision.
+- **One measurement maps to at most one item per unit.** The catalogue holds several
+  items per measurement, but `applyCatalogue` takes the first whose unit matches.
+  Splitting a measured quantity across internal and external plaster needs an
+  apportionment rule that does not exist.
+- **The XLSX writer is minimal.** One sheet, inline strings, no styling or number
+  formats. Valid and deterministic, but a client-facing document will want formatting.
+- **Exports price from the rate book, not from a selected vendor offer.** A vendor
+  selection is recorded and audited but does not change an exported amount.
 - **`getPricedBoq` prices the project rollup only.** There is no per-storey or
   per-building priced view yet.
 - **Vendor offers do not feed the priced total.** They are surfaced for a human to

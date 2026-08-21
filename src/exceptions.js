@@ -22,7 +22,11 @@ const SEVERITIES = Object.freeze({
   low_confidence: { severity: 'advisory', blocks: ['review'] },
   /* Raised by the pricing layer rather than by a run: a rate outside its
      validity window must never quietly price a BOQ. */
-  stale_rate: { severity: 'blocking', blocks: ['approval', 'export'] }
+  stale_rate: { severity: 'blocking', blocks: ['approval', 'export'] },
+  /* A measurement with no catalogue entry is a real gap in the studio's setup.
+     Falling back to the raw measurement name would export a row saying
+     "floor_area", which is not a BOQ anyone can send a client. */
+  unmapped_measurement: { severity: 'blocking', blocks: ['approval', 'export'] }
 });
 
 const EXCEPTION_TYPES = Object.freeze(Object.keys(SEVERITIES));

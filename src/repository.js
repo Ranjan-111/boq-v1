@@ -107,6 +107,14 @@ CREATE TABLE IF NOT EXISTS vendor_offers (
   item_code TEXT NOT NULL, valid_from TEXT NOT NULL, valid_to TEXT NOT NULL, state_json TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS vendor_offers_lookup ON vendor_offers (project_id, item_code);
 
+/* Catalogues are immutable and versioned like rate books and rulesets. */
+CREATE TABLE IF NOT EXISTS catalogues (
+  id TEXT NOT NULL, project_id TEXT NOT NULL, studio_id TEXT, version INTEGER NOT NULL,
+  published_at TEXT NOT NULL, state_json TEXT NOT NULL, PRIMARY KEY (id, version));
+CREATE INDEX IF NOT EXISTS catalogues_project ON catalogues (project_id, version);
+CREATE TRIGGER IF NOT EXISTS catalogues_no_update BEFORE UPDATE ON catalogues
+BEGIN SELECT RAISE(ABORT, 'catalogues are immutable; publish a new version'); END;
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, kind TEXT NOT NULL,
   subject_id TEXT, payload_json TEXT);
@@ -234,6 +242,13 @@ function createRepository({ file = ':memory:' } = {}) {
   }
   function listRateBooks(projectId) {
     return all('SELECT state_json FROM rate_books WHERE project_id = ? ORDER BY version', projectId).map((row) => parse(row.state_json));
+  }
+  function saveCatalogue(catalogue, projectId) {
+    run('INSERT INTO catalogues (id, project_id, studio_id, version, published_at, state_json) VALUES (?, ?, ?, ?, ?, ?)',
+      catalogue.id, projectId, catalogue.studioId ?? null, catalogue.version, new Date().toISOString(), json(catalogue));
+  }
+  function listCatalogues(projectId) {
+    return all('SELECT state_json FROM catalogues WHERE project_id = ? ORDER BY version', projectId).map((row) => parse(row.state_json));
   }
   function saveVendorOffer(offer, projectId) {
     run(`INSERT INTO vendor_offers (id, project_id, studio_id, vendor_id, item_code, valid_from, valid_to, state_json)
@@ -447,7 +462,7 @@ function createRepository({ file = ':memory:' } = {}) {
   return {
     saveSourceDocument, getSourceDocument, allSourceDocuments, allRunIds, recentRunIds, countRuns, getRuns, saveEntity, allEntities,
     saveStudioMapping, allStudioMappings, appendResolution, listResolutions,
-    saveRateBook, listRateBooks, saveVendorOffer, listVendorOffers,
+    saveRateBook, listRateBooks, saveCatalogue, listCatalogues, saveVendorOffer, listVendorOffers,
     saveRun, getRun, rollup, completedRuns, resultsFor, appendAudit, listAudit,
     countSourceObjects: () => get('SELECT COUNT(*) AS total FROM source_objects').total,
     measureQueries(work) { const before = queries; const result = work(); return { result, queries: queries - before }; },

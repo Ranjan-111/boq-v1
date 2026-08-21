@@ -3,7 +3,7 @@
 **Baseline commit:** see `git log -1` — the R2 unified provenance record.
 **Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`,
 then replacing the two per-tier provenance shapes with one record (R2).
-**Suite:** 263 tests, all passing together (`npm test`).
+**Suite:** 285 tests, all passing together (`npm test`).
 
 ## What `main` now contains
 
@@ -39,6 +39,8 @@ src/vision/           server-side vision: contract, provider, crop, residuals (#
 src/exceptions.js     one exception queue, grouping and the pluggable ranker (#12)
 src/rates.js          versioned rate books and money arithmetic (#15)
 src/vendors.js        eligible vendor offers (#16)
+src/catalogue.js      studio item catalogue: measurement -> BOQ item (#24)
+src/export.js         reproducible approved exports, CSV + XLSX + sidecar (#17)
 src/classification.js evidence fusion, studio mappings, stable digest()
 src/dxf.js            DXF parse, unit resolution, measurement rules
 src/ocr-results.js    OCR normalization, forbidden-field enforcement
@@ -600,6 +602,81 @@ A selection is a recorded decision through the same append-only `resolutions` pa
 every other human decision, with `supersedes` on a change of mind, and an audit entry.
 **A vendor choice never moves a quantity** — offers price what was measured and have no
 path back into measurement; no run is superseded by one.
+
+## Item catalogue (#24) — implemented
+
+The architecture is **geometry -> rules -> items -> rates**, and `items` was never built:
+rate lookup matched a rate book's `itemCode` straight against a measurement name. That
+forced a studio to author its rate book as `floor_area`, and would have exported rows
+labelled `floor_area` -- not a BOQ anyone can send a client.
+
+```
+CatalogueItem { code, description, unit, measurement, notes?, sortOrder? }
+```
+
+`description` is the client-facing text. Studio-scoped, versioned and immutable like
+rulesets and rate books; an approval snapshots the catalogue version it used.
+
+**Mapping is explicit, never guessed.** One measurement may map to several items
+(internal vs external plaster). A measurement with no entry raises a **blocking**
+`unmapped_measurement` exception in the #12 queue rather than falling back to the raw
+name. Unit disagreement between item and measurement reuses #15's `unit_mismatch`
+rather than inventing a second refusal.
+
+**Approval now requires a catalogue**, since a BOQ whose rows have no client-facing
+description cannot be sent to anyone.
+
+**Locality matching fixed.** `"Bengaluru"` and `"Bangalore"` normalise to the same key
+through a documented alias table (also Bombay/Mumbai, Calcutta/Kolkata, Madras/Chennai,
+New Delhi/Delhi, Gurgaon/Gurugram). An unscoped rate applies anywhere. An unknown
+locality still misses -- but honestly, rather than presenting as "no rate".
+
+## Reproducible exports (#17) — implemented, and Q9 is closed
+
+**An export is a reproducible artefact, not a render.** It is built from a snapshot
+**frozen at approval**, not re-derived at export time. Re-deriving would make a delivered
+document depend on whatever has been published since; freezing is what makes a re-export
+byte-identical six months later. `buildArtefact` is pure -- no clock, no current-state
+lookup.
+
+### Gating chain
+
+1. the version must be **approved** -- never a draft, never a run;
+2. approval is already refused while blocking exceptions are open (#13), a rate is stale
+   (#15), or a measurement is unmapped (#24), so export inherits all three;
+3. a **stale** approval (assumptions or ruleset changed since) refuses export with a
+   re-approve instruction;
+4. any **superseded run** the approval rests on refuses export.
+
+### The stamp
+
+Mandatory on every document: approver, approval date, ruleset version, assumptions
+version, rate book version, catalogue version, parser version, input tiers, currency and
+pricing date.
+
+### Tier honesty survives into the document
+
+Each row carries a tier derived from its contributions' `coordinateSpace` --
+`dxf` -> **A Measured (CAD)**, `pdf-page` -> **B Measured (vector PDF)**,
+`raster-pixel` -> **C Traced estimate** -- plus a plain-language basis-of-quantity
+column. **A line mixing tiers is reported at its weakest**: a total containing a traced
+estimate is not a measured quantity. This is the last point at which the distinction
+could be lost.
+
+### Money in the document
+
+Row amounts are **presented rounded**; the total accumulates **exact** values and rounds
+once, per #15. A raw binary float (`60391.799999999996`) reaching a client-facing row
+was caught and fixed here. Unpriced lines carry no amount and the total states
+`INCOMPLETE: n of m lines have no amount. This is not a whole-project total.`
+
+### Formats and the sidecar
+
+CSV and XLSX from one artefact -- same content, different encoding. The XLSX writer is
+hand-rolled with fixed zip timestamps so the same artefact zips to the same bytes; no
+dependency. A machine-readable **JSON provenance sidecar** ships alongside, carrying
+every line's contributions and the source objects they resolve to **with geometry**, so
+a delivered number is traceable without the application.
 
 ## Known gaps (not regressions — never built)
 

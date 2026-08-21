@@ -65,6 +65,33 @@ function createRateBook({ id, studioId, label = '', version, currency, locality 
   });
 }
 
+/* Locality was exact-string, so a rate scoped to "Bengaluru" silently missed a
+   project in "Bangalore" and presented as "no rate" -- a wrong answer wearing
+   the shape of a right one. Normalise through a documented alias table; an
+   unknown locality still misses, but it misses honestly. */
+const LOCALITY_ALIASES = Object.freeze({
+  bangalore: 'bengaluru', bengaluru: 'bengaluru',
+  bombay: 'mumbai', mumbai: 'mumbai',
+  calcutta: 'kolkata', kolkata: 'kolkata',
+  madras: 'chennai', chennai: 'chennai',
+  poona: 'pune', pune: 'pune',
+  'new delhi': 'delhi', delhi: 'delhi', ncr: 'delhi',
+  gurgaon: 'gurugram', gurugram: 'gurugram',
+  trivandrum: 'thiruvananthapuram', thiruvananthapuram: 'thiruvananthapuram'
+});
+
+function normaliseLocality(value) {
+  if (value === null || value === undefined) return null;
+  const key = String(value).trim().toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ');
+  return LOCALITY_ALIASES[key] || key;
+}
+
+/** An unscoped rate applies anywhere; a scoped one must normalise to the same place. */
+function localityMatches(rateLocality, projectLocality) {
+  if (!rateLocality || !projectLocality) return true;
+  return normaliseLocality(rateLocality) === normaliseLocality(projectLocality);
+}
+
 function isStale(rate, on) {
   if (!rate) return false;
   return String(on) > rate.validTo;
@@ -78,7 +105,7 @@ function isNotYetValid(rate, on) {
     stale rate can be reported rather than silently treated as absent. */
 function findRate(book, itemCode, locality = null) {
   const candidates = book.rates.filter((rate) => rate.itemCode === itemCode
-    && (!locality || !rate.locality || rate.locality === locality));
+    && localityMatches(rate.locality, locality));
   if (!candidates.length) return null;
   return [...candidates].sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0];
 }
@@ -131,4 +158,4 @@ function totalOf(pricedLines = []) {
   };
 }
 
-module.exports = { createRateBook, priceLine, totalOf, roundMoney, isStale, isNotYetValid, findRate, RateError, PRICING_STATUSES };
+module.exports = { createRateBook, priceLine, totalOf, roundMoney, isStale, isNotYetValid, findRate, normaliseLocality, localityMatches, LOCALITY_ALIASES, RateError, PRICING_STATUSES };

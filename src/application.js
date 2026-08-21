@@ -13,6 +13,8 @@ const { coerceBoxes, boxToPolygon } = require('./vision/contract');
 const { exceptionsForRun, groupExceptions, createImpactRanker } = require('./exceptions');
 const { createRateBook, priceLine, totalOf, isStale, findRate, RateError } = require('./rates');
 const { createVendorOffer, eligibleOffers, VendorError } = require('./vendors');
+const { createCatalogue, applyCatalogue, itemsFor, CatalogueError } = require('./catalogue');
+const { buildArtefact, encode, encodeProvenance, tierOf, ExportError, FORMATS } = require('./export');
 const { normalizeAssumptions, getRuleset, listRulesets, ASSUMPTION_DEFINITIONS, DEFAULT_ASSUMPTIONS, DEFAULT_RULESET_VERSION, RuleError } = require('./rules');
 
 const VERSIONS = DXF_VERSIONS;
@@ -273,12 +275,96 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     version.approvedRulesetVersion = project.rulesetVersion;
     version.approvedRunIds = currentRunsFor(project).map((run) => run.id);
     version.approvedRateBookVersion = currentRateBook(project.id)?.version ?? null;
+    version.approvedCatalogueVersion = currentCatalogue(project.id)?.version ?? null;
+    /* The artefact is frozen here, not re-derived at export time. Re-deriving
+       would make a delivered document depend on whatever has been published
+       since; freezing is what makes a re-export byte-identical six months
+       later. The versions above say what it was frozen from. */
+    version.approvedSnapshot = freezeSnapshot(project, version, on);
     version.approvedAt = new Date().toISOString();
     delete version.staleReason;
     delete version.staleAt;
     persistBoqVersion(version);
     repository.appendAudit({ kind: 'boq_version_approved', subjectId: version.id, payload: { approvedBy: version.approvedBy, assumptionsVersion: version.approvedAssumptionsVersion, rulesetVersion: version.approvedRulesetVersion } });
     return { ...version };
+  }
+
+  /* --- reproducible exports (#17) -------------------------------------- */
+
+  function freezeSnapshot(project, version, on) {
+    const rollup = getProject(project.id).rollup;
+    const priced = getPricedBoq(project.id, { on });
+    const book = currentRateBook(project.id);
+    const catalogue = currentCatalogue(project.id);
+    const pricedByMeasurement = new Map(priced.lines.map((line) => [line.measurement, line]));
+    const tiers = new Set();
+    const lines = rollup.lines.map((line) => {
+      const pricing = pricedByMeasurement.get(line.measurement) || {};
+      const tier = tierOf(line, rollup.sourceObjects);
+      tiers.add(tier.tier);
+      return {
+        measurement: line.measurement,
+        itemCode: pricing.itemCode ?? line.measurement,
+        description: pricing.description ?? null,
+        unit: line.unit,
+        quantity: line.measurementStatus === 'not_measurable' ? null : line.quantity,
+        rate: pricing.rate?.amount ?? null,
+        amount: Number.isFinite(pricing.amount) ? pricing.amount : null,
+        measurementStatus: line.measurementStatus,
+        pricingStatus: pricing.status ?? 'no_rate_book',
+        rateSource: pricing.rate?.source ?? null,
+        sortOrder: pricing.sortOrder ?? 1000,
+        provenance: { contributions: structuredClone(line.provenance?.contributions || []) }
+      };
+    });
+    return {
+      boqVersionId: version.id,
+      projectName: project.name,
+      lines,
+      sourceObjects: structuredClone(rollup.sourceObjects || []),
+      catalogue: catalogue ? { id: catalogue.id, version: catalogue.version } : null,
+      stamp: {
+        approvedBy: version.approvedBy,
+        approvedAt: version.approvedAt,
+        rulesetVersion: project.rulesetVersion,
+        assumptionsVersion: project.assumptions.version,
+        rateBookVersion: book?.version ?? null,
+        catalogueVersion: catalogue?.version ?? null,
+        parserVersion: VERSIONS.parser,
+        tiers: [...tiers].sort(),
+        currency: book?.currency ?? null,
+        pricedOn: on
+      }
+    };
+  }
+
+  /**
+   * Export an approved BOQ version. Refuses a draft, refuses a stale approval,
+   * and refuses if anything it depended on has been superseded since.
+   */
+  function exportBoq(boqVersionId, { format = 'csv' } = {}) {
+    const version = boqVersions.get(boqVersionId);
+    if (!version) throw new NotFoundError('BOQ version not found.');
+    if (!FORMATS.includes(format)) throw new ExportError(`Unsupported export format "${format}". Supported: ${FORMATS.join(', ')}.`);
+    if (version.status !== 'approved') {
+      throw new ConflictError(version.status === 'stale'
+        ? `This BOQ version is stale (${version.staleReason || 'a dependency changed'}). Re-approve it before exporting; an export must reflect an approval that still holds.`
+        : 'Only an approved BOQ version can be exported. A draft has not been reviewed.');
+    }
+    if (!version.approvedSnapshot) throw new ConflictError('This approval predates reproducible exports and has no frozen snapshot. Re-approve it.');
+    /* Belt and braces alongside the stale check: a run that produced an
+       approved number must still be the current one. */
+    const superseded = (version.approvedRunIds || []).filter((runId) => loadRun(runId)?.superseded);
+    if (superseded.length) throw new ConflictError(`${superseded.length} run(s) this approval rests on have been superseded since. Re-approve before exporting.`);
+
+    const artefact = buildArtefact(version.approvedSnapshot);
+    return {
+      boqVersionId, format,
+      filename: `${version.id}-boq.${format}`,
+      content: encode(artefact, format, version.approvedSnapshot),
+      provenance: encodeProvenance(artefact, version.approvedSnapshot),
+      artefact
+    };
   }
 
   function getBoqVersion(boqVersionId) {
@@ -765,7 +851,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   function getExceptionQueue(projectId, { on = new Date().toISOString().slice(0, 10) } = {}) {
     const project = requireProject(projectId);
     const ranker = rankerFor(projectId, on);
-    const raw = [...currentRunsFor(project).flatMap((run) => exceptionsForRun(run)), ...rateExceptionsFor(project, on)];
+    const raw = [...currentRunsFor(project).flatMap((run) => exceptionsForRun(run)), ...rateExceptionsFor(project, on), ...catalogueExceptionsFor(project)];
     const resolvedKeys = new Set(activeResolutions(projectId).map((resolution) => resolution.groupKey));
     const open = raw.filter((exception) => !resolvedKeys.has(exception.groupKey));
     const exceptions = ranker.order(open);
@@ -790,9 +876,15 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   function rateExceptionsFor(project, on) {
     const book = currentRateBook(project.id);
     if (!book) return [];
+    const catalogue = currentCatalogue(project.id);
     const out = [];
     for (const line of getProject(project.id).rollup.lines) {
-      const rate = findRate(book, line.measurement, book.locality);
+      /* Rates price the catalogue item's code, not the internal measurement
+         name. Looking up by measurement here would find nothing once a
+         catalogue exists, and an expired rate would stop being detected. */
+      const mapped = applyCatalogue({ measurement: line.measurement, unit: line.unit }, catalogue);
+      const itemCode = mapped.status === 'mapped' ? mapped.item.code : line.measurement;
+      const rate = findRate(book, itemCode, book.locality);
       if (!rate || !isStale(rate, on)) continue;
       out.push({
         id: `stale_rate:${project.id}:${line.measurement}`, type: 'stale_rate',
@@ -941,14 +1033,71 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
         lines: rollup.lines.map((line) => ({ measurement: line.measurement, quantity: line.quantity, unit: line.unit, amount: null, status: 'no_rate_book', rate: null }))
       };
     }
-    const lines = rollup.lines.map((line) => priceLine(
-      { measurement: line.measurement, quantity: line.measurementStatus === 'not_measurable' ? null : line.quantity, unit: line.unit, measurementStatus: line.measurementStatus },
-      book, { on }));
+    const catalogue = currentCatalogue(projectId);
+    const lines = rollup.lines.map((line) => {
+      const mapped = applyCatalogue({ measurement: line.measurement, unit: line.unit }, catalogue);
+      /* The rate book prices the catalogue item's code, not the internal
+         measurement name -- that is what the items layer exists for. */
+      const itemCode = mapped.status === 'mapped' ? mapped.item.code : line.measurement;
+      const priced = priceLine(
+        { measurement: itemCode, quantity: line.measurementStatus === 'not_measurable' ? null : line.quantity, unit: line.unit, measurementStatus: line.measurementStatus },
+        book, { on, locality: book.locality });
+      return { ...priced, measurement: line.measurement, itemCode, catalogueStatus: mapped.status, item: mapped.item, description: mapped.item?.description ?? null, sortOrder: mapped.item?.sortOrder ?? 1000 };
+    });
     return {
       projectId: project.id, status: 'priced', pricedOn: on,
       rateBookId: book.id, rateBookVersion: book.version, currency: book.currency,
       total: totalOf(lines), lines
     };
+  }
+
+  /* --- item catalogue (#24) -------------------------------------------- */
+
+  function cataloguesFor(projectId) { return repository.listCatalogues(projectId); }
+  function currentCatalogue(projectId, version = null) {
+    const all = cataloguesFor(projectId);
+    if (!all.length) return null;
+    if (version !== null) return all.find((entry) => entry.version === version) || null;
+    return all.reduce((latest, entry) => (entry.version > latest.version ? entry : latest), all[0]);
+  }
+
+  function publishCatalogue(projectId, { studioId, label = '', items = [], locality = null } = {}) {
+    const project = requireProject(projectId);
+    const existing = cataloguesFor(projectId);
+    const id = existing[0]?.id || `catalogue_${String(existing.length + 1).padStart(4, '0')}_${project.id}`;
+    const catalogue = createCatalogue({
+      id, studioId: studioId || studioIdForGroup(project, null) || 'studio_default',
+      version: existing.length + 1, label, items, locality
+    });
+    repository.saveCatalogue(catalogue, project.id);
+    repository.appendAudit({ kind: 'catalogue_published', subjectId: catalogue.id, payload: { projectId: project.id, version: catalogue.version, itemCount: catalogue.items.length } });
+    return catalogue;
+  }
+
+  /* geometry -> rules -> items -> rates. Each rollup line resolves to a
+     catalogue item first; the item's code is what the rate book prices. */
+  function catalogueExceptionsFor(project) {
+    const catalogue = currentCatalogue(project.id);
+    const out = [];
+    for (const line of getProject(project.id).rollup.lines) {
+      const mapped = applyCatalogue({ measurement: line.measurement, unit: line.unit }, catalogue);
+      if (mapped.status === 'mapped') continue;
+      out.push({
+        id: `unmapped_measurement:${project.id}:${line.measurement}`, type: 'unmapped_measurement',
+        severity: 'blocking', blocks: ['approval', 'export'],
+        runId: null, projectId: project.id, sourceDocumentId: null,
+        measurement: line.measurement, sourceObjectId: null,
+        groupKey: `unmapped_measurement:${line.measurement}`,
+        impact: { quantity: line.quantity ?? null, unit: line.unit ?? null },
+        title: `${line.label || line.measurement} has no catalogue item`,
+        raisedBecause: mapped.reason,
+        resolutionOptions: [
+          { action: 'publish_catalogue', label: 'Add a catalogue item mapping this measurement to a BOQ item' },
+          { action: 'exclude_measurement', label: 'Record that this measurement is not billed' }
+        ]
+      });
+    }
+    return out;
   }
 
   /* --- vendor offers (#16) --------------------------------------------- */
@@ -1453,7 +1602,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return assignSourceDocument(sourceDocumentId, { projectId: storey.projectId, buildingId: storey.buildingId, storeyId, ...(typicalMultiplier === undefined && typicalStoreyMultiplier === undefined ? {} : { typicalMultiplier: typicalStoreyMultiplier ?? typicalMultiplier }) });
   }
 
-  return { publishRateBook, getPricedBoq, getRateBooks: rateBooksFor, recordVendorOffer, getVendorOffers, selectVendorOffer, rankExceptions, getExceptionQueue, resolveExceptionGroup, getResolutions, recordQuantityAffectingResolution, proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+  return { publishCatalogue, getCatalogues: cataloguesFor, exportBoq, publishRateBook, getPricedBoq, getRateBooks: rateBooksFor, recordVendorOffer, getVendorOffers, selectVendorOffer, rankExceptions, getExceptionQueue, resolveExceptionGroup, getResolutions, recordQuantityAffectingResolution, proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
 }
 
 function classifyDocument(run, sourceDocument, entities) {
