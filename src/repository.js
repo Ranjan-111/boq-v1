@@ -80,6 +80,18 @@ CREATE TABLE IF NOT EXISTS studio_mappings (
   used_as_draft INTEGER NOT NULL DEFAULT 0, state_json TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS studio_mappings_lookup ON studio_mappings (studio_id, block_pattern, status);
 
+/* Human decisions, append-only with supersedes. A correction is a new row that
+   points at what it replaced; the original is never overwritten, because what
+   someone decided at the time is the record. */
+CREATE TABLE IF NOT EXISTS resolutions (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, group_key TEXT, action TEXT NOT NULL,
+  supersedes TEXT, resolved_by TEXT, at TEXT NOT NULL, state_json TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS resolutions_project ON resolutions (project_id, group_key);
+CREATE TRIGGER IF NOT EXISTS resolutions_no_update BEFORE UPDATE ON resolutions
+BEGIN SELECT RAISE(ABORT, 'resolutions are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS resolutions_no_delete BEFORE DELETE ON resolutions
+BEGIN SELECT RAISE(ABORT, 'resolutions are append-only'); END;
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, kind TEXT NOT NULL,
   subject_id TEXT, payload_json TEXT);
@@ -189,6 +201,17 @@ function createRepository({ file = ':memory:' } = {}) {
            used_as_draft = excluded.used_as_draft, state_json = excluded.state_json`,
       mapping.id, mapping.studioId ?? mapping.scope?.studioId ?? null, mapping.scope?.projectId ?? null,
       mapping.scope?.blockPattern ?? null, mapping.status, mapping.version, retired ? 1 : 0, usedAsDraft ? 1 : 0, json(mapping));
+  }
+  function appendResolution(resolution) {
+    run('INSERT INTO resolutions (id, project_id, group_key, action, supersedes, resolved_by, at, state_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      resolution.id, resolution.projectId, resolution.groupKey ?? null, resolution.action,
+      resolution.supersedes ?? null, resolution.resolvedBy ?? null, resolution.at, json(resolution));
+  }
+  function listResolutions(projectId) {
+    const rows = projectId
+      ? all('SELECT state_json FROM resolutions WHERE project_id = ? ORDER BY rowid', projectId)
+      : all('SELECT state_json FROM resolutions ORDER BY rowid');
+    return rows.map((row) => parse(row.state_json));
   }
   function allStudioMappings() {
     return all('SELECT state_json, retired, used_as_draft FROM studio_mappings')
@@ -392,7 +415,7 @@ function createRepository({ file = ':memory:' } = {}) {
 
   return {
     saveSourceDocument, getSourceDocument, allSourceDocuments, allRunIds, recentRunIds, countRuns, getRuns, saveEntity, allEntities,
-    saveStudioMapping, allStudioMappings,
+    saveStudioMapping, allStudioMappings, appendResolution, listResolutions,
     saveRun, getRun, rollup, completedRuns, resultsFor, appendAudit, listAudit,
     countSourceObjects: () => get('SELECT COUNT(*) AS total FROM source_objects').total,
     measureQueries(work) { const before = queries; const result = work(); return { result, queries: queries - before }; },

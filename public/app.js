@@ -1029,3 +1029,75 @@ function renderBoq(boq, classifications = []) {
   }));
   reviewSection.hidden = false;
 }
+
+
+/* ---- dev review surface (#12/#13) ---------------------------------------
+   Plain on purpose. It exists so a review workflow can be worked and watched
+   without curl, not to be the product. */
+const exceptionSection = document.querySelector('#exception-review');
+const queueOrdering = document.querySelector('#queue-ordering');
+const queueCounts = document.querySelector('#queue-counts');
+const queueRows = document.querySelector('#queue-rows');
+const approvalState = document.querySelector('#approval-state');
+const approveButton = document.querySelector('#approve-boq');
+const approvalError = document.querySelector('#approval-error');
+
+async function renderReview(projectId) {
+  if (!exceptionSection || !projectId) return;
+  const response = await fetch(`/api/projects/${projectId}/exceptions`);
+  if (!response.ok) return;
+  const queue = await response.json();
+  exceptionSection.hidden = false;
+  /* The ordering label is shown, never hidden: an operator who believes they are
+     working highest-value-first when they are not is worse off than one who knows. */
+  queueOrdering.textContent = `Ordered by: ${queue.rankedBy}${queue.caveat ? ` — ${queue.caveat}` : ''}`;
+  queueOrdering.dataset.rankedBy = queue.rankedBy;
+  queueCounts.textContent = `${queue.counts.total} exceptions in ${queue.counts.groups} groups · ${queue.counts.blocking} blocking · ${queue.counts.advisory} advisory`;
+  queueRows.replaceChildren(...queue.groups.map((group) => {
+    const row = document.createElement('tr');
+    row.dataset.groupKey = group.groupKey;
+    row.dataset.severity = group.severity;
+    for (const value of [group.severity, group.title, group.raisedBecause, (group.blocks || []).join(', '), String(group.count)]) {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.append(cell);
+    }
+    const actions = document.createElement('td');
+    for (const option of group.resolutionOptions || []) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = option.label;
+      button.dataset.action = option.action;
+      button.addEventListener('click', async () => {
+        const body = { groupKey: group.groupKey, action: option.action, resolvedBy: 'operator' };
+        if (option.action === 'confirm_item') {
+          const item = window.prompt(`What item is ${group.title}?`);
+          if (!item) return;
+          body.item = item;
+        }
+        await fetch(`/api/projects/${projectId}/exceptions/resolve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        await renderReview(projectId);
+      });
+      actions.append(button);
+    }
+    row.append(actions);
+    return row;
+  }));
+  approvalState.textContent = queue.counts.blocking > 0
+    ? `Approval blocked by ${queue.counts.blocking} exception(s).`
+    : 'Nothing blocking. This BOQ version can be approved.';
+  approvalState.dataset.blocking = String(queue.counts.blocking);
+  if (approveButton) approveButton.disabled = queue.counts.blocking > 0;
+}
+
+if (approveButton) {
+  approveButton.addEventListener('click', async () => {
+    const projectId = document.querySelector('#project-status')?.dataset.projectId;
+    const versionId = document.querySelector('#project-status')?.dataset.boqVersionId;
+    if (!projectId || !versionId) return;
+    const response = await fetch(`/api/boq-versions/${versionId}/approve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ approvedBy: 'operator' }) });
+    const body = await response.json();
+    approvalError.textContent = response.ok ? `Approved: ruleset ${body.boqVersion.approvedRulesetVersion}, assumptions v${body.boqVersion.approvedAssumptionsVersion}` : body.error;
+    await renderReview(projectId);
+  });
+}

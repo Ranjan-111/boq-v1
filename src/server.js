@@ -116,6 +116,22 @@ function createServer(application = createApplication()) {
       }
       const runMatch = /^\/api\/runs\/(run_\d+)$/.exec(url.pathname);
       if (request.method === 'GET' && runMatch) return sendJson(response, 200, application.getRun(runMatch[1]));
+      const exceptionsMatch = /^\/api\/projects\/(project_\d+)\/exceptions$/.exec(url.pathname);
+      if (request.method === 'GET' && exceptionsMatch) return sendJson(response, 200, application.getExceptionQueue(exceptionsMatch[1]));
+      const resolveMatch = /^\/api\/projects\/(project_\d+)\/exceptions\/resolve$/.exec(url.pathname);
+      if (request.method === 'POST' && resolveMatch) {
+        const body = await readJson(request);
+        return sendJson(response, 201, application.resolveExceptionGroup(resolveMatch[1], body.groupKey, body));
+      }
+      const resolutionsMatch = /^\/api\/projects\/(project_\d+)\/resolutions$/.exec(url.pathname);
+      if (request.method === 'GET' && resolutionsMatch) return sendJson(response, 200, { resolutions: application.getResolutions(resolutionsMatch[1]) });
+      const approveMatch = /^\/api\/boq-versions\/(boqv_\d+)\/approve$/.exec(url.pathname);
+      if (request.method === 'POST' && approveMatch) {
+        const body = await readJson(request);
+        return sendJson(response, 201, { boqVersion: application.approveBoqVersion(approveMatch[1], body) });
+      }
+      const boqVersionMatch = /^\/api\/boq-versions\/(boqv_\d+)$/.exec(url.pathname);
+      if (request.method === 'GET' && boqVersionMatch) return sendJson(response, 200, { boqVersion: application.getBoqVersion(boqVersionMatch[1]) });
       const runClassificationsMatch = /^\/api\/runs\/(run_\d+)\/classifications$/.exec(url.pathname);
       if (request.method === 'GET' && runClassificationsMatch) return sendJson(response, 200, application.getClassifications(runClassificationsMatch[1]));
       const ocrResultsMatch = /^\/api\/runs\/(run_\d+)\/pages\/(page_\d+)\/ocr-results$/.exec(url.pathname);

@@ -113,7 +113,21 @@
         <tbody id="boq-lines"></tbody>
       </table>
     </section>
-    <section id="rollup" hidden>
+    <!-- Dev-only review surface (#12/#13). Deliberately unstyled: the real
+     frontend is a later batch and this gets thrown away. Debugging a review
+     workflow through curl is a false economy. -->
+<section id="exception-review" hidden>
+  <h2>Exception queue</h2>
+  <p id="queue-ordering"></p>
+  <p id="queue-counts"></p>
+  <table><thead><tr><th>Severity</th><th>What</th><th>Why</th><th>Blocks</th><th>Count</th><th>Resolve</th></tr></thead>
+    <tbody id="queue-rows"></tbody></table>
+  <h3>Approval</h3>
+  <p id="approval-state"></p>
+  <button id="approve-boq" type="button">Approve BOQ version</button>
+  <p id="approval-error"></p>
+</section>
+<section id="rollup" hidden>
       <h2>Project rollup</h2>
       <p id="rollup-summary"></p>
       <table>

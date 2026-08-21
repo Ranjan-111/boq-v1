@@ -10,12 +10,13 @@ const { createSourceObject, createContribution, buildProvenance, measurementStat
 const { createRepository } = require('./repository');
 const { createVisionService, residualsFor, splitCounts } = require('./vision');
 const { coerceBoxes, boxToPolygon } = require('./vision/contract');
+const { exceptionsForRun, groupExceptions, createImpactRanker } = require('./exceptions');
 const { normalizeAssumptions, getRuleset, listRulesets, ASSUMPTION_DEFINITIONS, DEFAULT_ASSUMPTIONS, DEFAULT_RULESET_VERSION, RuleError } = require('./rules');
 
 const VERSIONS = DXF_VERSIONS;
 const PROCESSING_STAGE_DELAY_MS = 150;
 
-function createApplication({ schedule = setTimeout, file = ':memory:', repository = createRepository({ file }), hydrateRunLimit = 200, vision = createVisionService() } = {}) {
+function createApplication({ schedule = setTimeout, file = ':memory:', repository = createRepository({ file }), hydrateRunLimit = 200, vision = createVisionService(), rateSource = null } = {}) {
   /* SQLite is the system of record. The maps below are a working set that is
      written through on every state transition and rehydrated from the store on
      construction -- one code path, not an in-memory alternative. Rollups, the
@@ -36,6 +37,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   let storeySequence = 0;
   let boqVersionSequence = 0;
   let mappingSequence = 0;
+  let resolutionSequence = 0;
 
   const TRANSIENT_RUN_FIELDS = ['parsedDocument'];
   function persistRun(run) {
@@ -254,12 +256,20 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     if (!version) throw new NotFoundError('BOQ version not found.');
     const project = requireProject(version.projectId);
     if (version.status === 'approved') throw new ConflictError('This BOQ version is already approved.');
+    /* `exportable` was found claiming a readiness the numbers could not back.
+       `approved` must not acquire the same problem. */
+    const queue = getExceptionQueue(project.id);
+    if (queue.counts.blocking > 0) {
+      throw new ConflictError(`Cannot approve while ${queue.counts.blocking} blocking exception${queue.counts.blocking === 1 ? '' : 's'} remain open: ${queue.exceptions.filter((exception) => exception.severity === 'blocking').slice(0, 3).map((exception) => exception.title).join('; ')}.`);
+    }
     version.status = 'approved';
     version.approvedBy = String(approvedBy || 'operator');
     version.approvedAt = new Date().toISOString();
     version.approvalReason = String(reason || '');
     version.approvedAssumptionsVersion = project.assumptions.version;
     version.approvedRulesetVersion = project.rulesetVersion;
+    version.approvedRunIds = currentRunsFor(project).map((run) => run.id);
+    version.approvedAt = new Date().toISOString();
     delete version.staleReason;
     delete version.staleAt;
     persistBoqVersion(version);
@@ -728,6 +738,138 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return { status: 'proposed', model: reply.model || null, regions: created, dropped };
   }
 
+  /* One queue for every signal the pipeline can raise. Nothing here reads a
+     module directly -- exceptionsForRun consolidates them, so a new check that
+     forgets to register is visible as a missing type rather than a silent gap. */
+  function currentRunsFor(project) {
+    const scoped = new Set([
+      ...project.sourceDocumentIds,
+      ...project.buildingIds.flatMap((buildingId) => {
+        const building = buildings.get(buildingId);
+        return [...(building?.sourceDocumentIds || []), ...(building?.storeyIds.flatMap((storeyId) => storeys.get(storeyId)?.sourceDocumentIds || []) || [])];
+      })
+    ]);
+    const latest = new Map();
+    for (const run of runs.values()) {
+      if (!scoped.has(run.sourceDocumentId) || run.superseded) continue;
+      const previous = latest.get(run.sourceDocumentId);
+      if (!previous || (run.sequence || 0) > (previous.sequence || 0)) latest.set(run.sourceDocumentId, run);
+    }
+    return [...latest.values()];
+  }
+
+  function getExceptionQueue(projectId) {
+    const project = requireProject(projectId);
+    const ranker = createImpactRanker({ rateSource });
+    const raw = currentRunsFor(project).flatMap((run) => exceptionsForRun(run));
+    const resolvedKeys = new Set(activeResolutions(projectId).map((resolution) => resolution.groupKey));
+    const open = raw.filter((exception) => !resolvedKeys.has(exception.groupKey));
+    const exceptions = ranker.order(open);
+    const groups = ranker.order(groupExceptions(exceptions).map((group) => ({ ...group, impact: group.members[0].impact, measurement: group.members[0].measurement, id: group.groupKey })));
+    return {
+      projectId: project.id,
+      rankedBy: ranker.rankedBy,
+      caveat: ranker.caveat,
+      counts: {
+        total: exceptions.length,
+        blocking: exceptions.filter((exception) => exception.severity === 'blocking').length,
+        advisory: exceptions.filter((exception) => exception.severity === 'advisory').length,
+        groups: groups.length
+      },
+      groups, exceptions
+    };
+  }
+
+  /* Latest decision per group. Superseded rows stay in the table; they are just
+     not the current answer. */
+  function activeResolutions(projectId) {
+    const byGroup = new Map();
+    for (const resolution of repository.listResolutions(projectId)) byGroup.set(resolution.groupKey, resolution);
+    return [...byGroup.values()];
+  }
+  function getResolutions(projectId) { return repository.listResolutions(projectId); }
+  function studioIdForGroup(project, blockName) {
+    for (const run of currentRunsFor(project)) {
+      const document = sourceDocuments.get(run.sourceDocumentId);
+      if (document?.studioId) return document.studioId;
+    }
+    return null;
+  }
+
+  function appendResolution(projectId, { groupKey, action, resolvedBy = 'operator', reason = '', ...rest }) {
+    const previous = activeResolutions(projectId).find((candidate) => candidate.groupKey === groupKey) || null;
+    const resolution = {
+      id: `resolution_${String(++resolutionSequence).padStart(4, '0')}`,
+      projectId, groupKey, action, resolvedBy, reason,
+      at: new Date().toISOString(),
+      supersedes: previous ? previous.id : null,
+      ...rest
+    };
+    repository.appendResolution(resolution);
+    repository.appendAudit({ kind: 'exception_resolved', subjectId: groupKey || resolution.id, payload: { projectId, action, resolvedBy, supersedes: resolution.supersedes, reason } });
+    return resolution;
+  }
+
+  /** One decision clears every equivalent exception in the group. */
+  function resolveExceptionGroup(projectId, groupKey, { action, item, category, resolvedBy = 'operator', reason = '' } = {}) {
+    const project = requireProject(projectId);
+    if (!action) throw new InputError('Resolving an exception requires an action.');
+    /* Look across every exception the project can raise, not only the open ones:
+       revising an earlier decision is the same operation, and it is what
+       `supersedes` exists for. Resolving one that has already been answered
+       appends a correction rather than being refused. */
+    const allGroups = groupExceptions(currentRunsFor(project).flatMap((run) => exceptionsForRun(run)));
+    const previous = activeResolutions(projectId).find((candidate) => candidate.groupKey === groupKey) || null;
+    const group = allGroups.find((candidate) => candidate.groupKey === groupKey)
+      || (previous ? { groupKey, members: [], count: previous.clearedCount ?? 0, resolutionOptions: [{ action: previous.action, label: 'Revise this decision' }] } : null);
+    if (!group) throw new NotFoundError('Exception group not found.');
+    if (!group.resolutionOptions.some((option) => option.action === action)) {
+      throw new InputError(`"${action}" is not a resolution this exception offers. Options: ${group.resolutionOptions.map((option) => option.action).join(', ')}.`);
+    }
+
+    /* confirm_item is also memorised for the studio, so the same symbol is not
+       asked again on the next drawing. */
+    let blockName = previous?.blockName ?? null;
+    if (action === 'confirm_item') {
+      if (!String(item || '').trim()) throw new InputError('Confirming an item requires the item it resolves to.');
+      let confirmedAny = false;
+      for (const member of group.members) {
+        const run = member.residualId ? loadRun(member.runId) : null;
+        const residual = (run?.residuals || []).find((candidate) => candidate.id === member.residualId);
+        if (!residual || residual.status !== 'awaiting_human') continue;
+        blockName = blockName || residual.blockName;
+        confirmResidual(member.runId, member.residualId, { item, category, confirmedBy: resolvedBy, reason });
+        confirmedAny = true;
+      }
+      /* A correction: the residuals were confirmed under the old answer, so
+         memorise the new one directly. The old mapping is retired by approval,
+         which already supersedes same-scope siblings. */
+      if (!confirmedAny && blockName) {
+        const draft = createStudioMapping({ studioId: sourceDocuments.get(loadRun(previous?.runId)?.sourceDocumentId)?.studioId ?? studioIdForGroup(project, blockName),
+          projectId: project.id, scope: { blockPattern: blockName },
+          target: { catalogItem: item, ...(category ? { category } : {}) },
+          reason: reason || `Corrected: ${blockName} is ${item}.`, createdBy: resolvedBy });
+        approveStudioMapping(draft.id, { approvedBy: resolvedBy, reason: reason || 'Resolution revised by operator.' });
+      }
+    }
+    if (action === 'confirm_region') {
+      for (const member of group.members) confirmRasterRegion(member.runId, member.pageId, member.regionId, { confirmedBy: resolvedBy });
+    }
+
+    const resolution = appendResolution(projectId, { groupKey, action, resolvedBy, reason, item: item ?? null, category: category ?? null, blockName, clearedCount: group.count });
+    return { resolution, cleared: group.count };
+  }
+
+  /* A resolution that moves a number behaves exactly as an assumption change
+     does: re-measure, supersede the runs that produced the old number, and
+     invalidate any approval that rested on it. */
+  function recordQuantityAffectingResolution(projectId, { action, values = {}, rulesetVersion, reason = '', resolvedBy = 'operator', groupKey = null } = {}) {
+    requireProject(projectId);
+    const resolution = appendResolution(projectId, { groupKey, action, resolvedBy, reason, values, rulesetVersion: rulesetVersion ?? null });
+    updateProjectAssumptions(projectId, { values, rulesetVersion, reason: reason || `Resolution ${resolution.id}`, updatedBy: resolvedBy });
+    return resolution;
+  }
+
   function getClassifications(runId) {
     const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
@@ -1169,7 +1311,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return assignSourceDocument(sourceDocumentId, { projectId: storey.projectId, buildingId: storey.buildingId, storeyId, ...(typicalMultiplier === undefined && typicalStoreyMultiplier === undefined ? {} : { typicalMultiplier: typicalStoreyMultiplier ?? typicalMultiplier }) });
   }
 
-  return { proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+  return { getExceptionQueue, resolveExceptionGroup, getResolutions, recordQuantityAffectingResolution, proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
 }
 
 function classifyDocument(run, sourceDocument, entities) {

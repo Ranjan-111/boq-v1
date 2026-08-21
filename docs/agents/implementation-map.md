@@ -3,7 +3,7 @@
 **Baseline commit:** see `git log -1` — the R2 unified provenance record.
 **Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`,
 then replacing the two per-tier provenance shapes with one record (R2).
-**Suite:** 214 tests, all passing together (`npm test`).
+**Suite:** 234 tests, all passing together (`npm test`).
 
 ## What `main` now contains
 
@@ -36,6 +36,7 @@ src/repository.js     SQLite store and schema (R1) -- the only file that sees SQ
 src/rules.js          versioned measurement rules, rulesets and assumptions (#6)
 src/conformance.js    the four-outcome ledger (#18)
 src/vision/           server-side vision: contract, provider, crop, residuals (#10, #11)
+src/exceptions.js     one exception queue, grouping and the pluggable ranker (#12)
 src/classification.js evidence fusion, studio mappings, stable digest()
 src/dxf.js            DXF parse, unit resolution, measurement rules
 src/ocr-results.js    OCR normalization, forbidden-field enforcement
@@ -430,6 +431,98 @@ read as accepted evidence.
 Every proposal and every confirmation is on the audit trail
 (`raster_regions_proposed`, `raster_region_confirmed`, `vision_label_proposed`,
 `residual_confirmed`), and a confirmation records the proposal it superseded.
+
+## Exception queue and approval (#12, #13) — implemented
+
+The product's stated weakness is asking an architect for too many decisions across
+too many screens. The fix is not fewer checks — it is fewer interruptions for the same
+checks.
+
+### One shape for every signal
+
+`src/exceptions.js` consolidates nine signal types that were each built and surfaced
+separately. **No exception type exists only in its originating module**; a new check
+that forgets to register shows up as a missing type rather than a silent gap.
+
+| type | severity | blocks |
+|---|---|---|
+| `impossible_quantity` | blocking | measurement, approval, export |
+| `not_measurable` | blocking | approval, export |
+| `implausible_magnitude` | blocking | approval |
+| `classification_conflict` | blocking | approval |
+| `unconfirmed_proposal` | blocking | measurement, approval |
+| `rectangular_proposal` | blocking | approval |
+| `unidentified_symbol` | advisory | **pricing** |
+| `unclassified_geometry` | advisory | completeness |
+| `low_confidence` | advisory | review |
+
+`unidentified_symbol` is advisory on purpose: the layer voted, so the *count is already
+correct*. What is missing is the identity needed to price it — it blocks pricing, not
+measurement.
+
+Every exception carries what it is (`title`), why it was raised (`raisedBecause`, a
+sentence not a code), what it blocks, what would resolve it (`resolutionOptions`), and
+a `sourceObjectId` so the evidence is one step away.
+
+### Grouping is the workload lever
+
+Twelve instances of `Block_17` are one decision, not twelve. Measured on real fixtures:
+
+| fixture | exceptions | groups | reduction |
+|---|---|---|---|
+| `repeated-symbol.dxf` | 12 | 1 | **92%** |
+| `garbage-and-exploded.dxf` | 18 | 10 | 44% |
+| `residual-blocks.dxf` | 4 | 4 | 0% (causes genuinely differ) |
+
+One `resolveExceptionGroup` clears the whole group, and for `confirm_item` it also
+memorises the answer for the studio (#10), so it does not return on the next drawing.
+
+### Ordering is labelled, never implied
+
+The intended ranking is money at risk. **There is no rate book yet (#15)**, so
+`createImpactRanker` is pluggable and the payload says which it used:
+`rankedBy: 'quantity-proxy'` with a `caveat`, or `'money-at-risk'` when a rate source is
+supplied.
+
+The proxy's honest limit: share is computed **within a measurement class**, because
+100 m² of floor and 5 m of skirting are not comparable without a rate. Sole members of
+different classes tie rather than being ordered on a comparison the proxy cannot
+justify. No monetary figure is invented, and the dev UI displays the label.
+
+### A new exception type from the vision batch
+
+`coerceBoxes` can only emit axis-aligned rectangles, so a confirmed proposal over an
+L-shaped room squares it off and overstates its area. `rectangular_proposal` queues
+that for shape review — the overlay makes it visible, but noticing it should not depend
+on the operator happening to look. Resolution: confirm the shape, or re-trace as a
+polygon (the geometry field already holds polygons; no schema change). A **human-traced**
+rectangle is not flagged: a person who drew a rectangle meant to.
+
+### Resolutions are append-only
+
+A `resolutions` table with `BEFORE UPDATE`/`BEFORE DELETE` triggers that `RAISE(ABORT)`,
+the same enforcement `audit_events` uses. A correction is a **new row carrying
+`supersedes`**; the original decision is never overwritten, because what someone decided
+at the time is the record. Revising an already-resolved group is the same operation, not
+a refusal.
+
+### Approval records what it approved, and cannot outrun the queue
+
+`approveBoqVersion` records the ruleset version, the assumptions version and the
+**run set**. It is refused while any blocking exception is open — `exportable` was found
+claiming a readiness the numbers could not back, and `approved` must not acquire the
+same problem. A single code path sets `status = 'approved'`, and a test pins that.
+
+A resolution that changes a quantity (`recordQuantityAffectingResolution`) re-measures,
+supersedes the runs that produced the old number, and moves any approval to `stale` —
+exactly the mechanism #6 built for assumption changes.
+
+### Dev UI
+
+`#exception-review` in the operator page: the queue with its ordering label, resolve
+buttons per group, and approval with its blocking reason. Deliberately unstyled — the
+real frontend is a later batch and this is thrown away. Debugging a review workflow
+through curl is a false economy.
 
 ## Known gaps (not regressions — never built)
 
