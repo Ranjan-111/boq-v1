@@ -15,7 +15,13 @@ function sniffContent(content) {
   if (bytes.subarray(0, JPEG_HEADER.length).equals(JPEG_HEADER)) return { format: 'jpeg', mediaType: 'image/jpeg' };
   const prefix = bytes.subarray(0, 64 * 1024).toString('latin1');
   if (/^AC10\d{2}/.test(prefix)) return { format: 'dwg', mediaType: 'application/acad' };
-  if (/(?:^|\r?\n)0\r?\nSECTION\r?\n2\r?\n[A-Z]+/i.test(prefix)) return { format: 'dxf', mediaType: 'application/dxf' };
+  /* The DXF specification right-justifies group codes in a three-character
+     field, so a real writer emits "  0" where a hand-written fixture has "0".
+     Requiring the code flush against the newline matched every fixture in this
+     repository and rejected every file AutoCAD or ezdxf produces. The structure
+     is still required exactly -- only the surrounding whitespace is tolerated. */
+  const DXF_START = /(?:^|\r?\n)[ \t]*0[ \t]*\r?\n[ \t]*SECTION[ \t]*\r?\n[ \t]*2[ \t]*\r?\n[ \t]*[A-Z]+/i;
+  if (DXF_START.test(prefix)) return { format: 'dxf', mediaType: 'application/dxf' };
   return { format: 'unknown', mediaType: 'application/octet-stream' };
 }
 
