@@ -16,6 +16,18 @@ never be reported as a satisfied one.
 
 ## Carried limitations
 
+- **A viewport for point-bounds objects is an invented extent.** An unresolved block
+  reference has no measurable size, so the workspace widens to a minimum and flags
+  `degenerate: true`. Resolving block extents properly (the `BLOCKS` expansion 3a
+  already does for defined blocks) is the real fix for drawings whose blocks are
+  missing.
+- **`viewportsByStorey` gives one rectangle per storey, with no cross-storey view.**
+  A line spanning storeys cannot be shown in a single viewport; deciding what a
+  multi-storey selection should actually display is a frontend design question.
+- **Queue traversal is by index.** Resolving an exception re-orders the queue, so an
+  index held across a resolution may land on a different item. A cursor keyed on
+  `groupKey` would be steadier once the frontend defines the interaction.
+
 - **No live rate feed, by design.** V1 imports a studio's own rate book and, optionally,
   a dated published schedule. No scraping, no market feed. Published schedules are
   import-only: none is embedded in this repository because the licensing is unverified.
@@ -41,10 +53,10 @@ never be reported as a satisfied one.
 - **Locality aliases are a fixed table, not a hierarchy.** Bengaluru/Bangalore and
   friends normalise, but there is no state or region containment, so a rate scoped to
   "Karnataka" will not match a project in "Mysuru".
-- **The printed total is not the sum of the printed row amounts.** Rows are presented
-  rounded while the total rounds once from exact values, per #15's rule. On a large BOQ
-  a client adding the column by hand may differ by a few paise. The rule is deliberate;
-  which figure a delivered document leads with is a commercial decision.
+- **Resolved (B8):** the printed total is now the sum of the printed row amounts, so an
+  estimator can tie the column. The exact figure is carried in the provenance sidecar as
+  `exactAmount`. #15's accumulate-exact rule still governs every internal total; this is
+  a presentation-boundary exception only.
 - **One measurement maps to at most one item per unit.** The catalogue holds several
   items per measurement, but `applyCatalogue` takes the first whose unit matches.
   Splitting a measured quantity across internal and external plaster needs an

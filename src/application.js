@@ -15,6 +15,7 @@ const { createRateBook, priceLine, totalOf, isStale, findRate, RateError } = req
 const { createVendorOffer, eligibleOffers, VendorError } = require('./vendors');
 const { createCatalogue, applyCatalogue, itemsFor, CatalogueError } = require('./catalogue');
 const { buildArtefact, encode, encodeProvenance, tierOf, ExportError, FORMATS } = require('./export');
+const { lineEvidence, objectLines, fitViewport, signedBreakdown } = require('./workspace');
 const { normalizeAssumptions, getRuleset, listRulesets, ASSUMPTION_DEFINITIONS, DEFAULT_ASSUMPTIONS, DEFAULT_RULESET_VERSION, RuleError } = require('./rules');
 
 const VERSIONS = DXF_VERSIONS;
@@ -364,6 +365,46 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
       content: encode(artefact, format, version.approvedSnapshot),
       provenance: encodeProvenance(artefact, version.approvedSnapshot),
       artefact
+    };
+  }
+
+  /* --- workspace (#14) -------------------------------------------------- */
+
+  /* One rollup load serves the whole call. lineEvidence and objectLines are
+     pure over what it returns, so neither is N+1 in contributions. */
+  function getLineEvidence(projectId, measurement, options = {}) {
+    const rollup = getProject(projectId).rollup;
+    const line = rollup.lines.find((candidate) => candidate.measurement === measurement);
+    if (!line) throw new NotFoundError(`No BOQ line for ${measurement} in this project.`);
+    return { projectId, ...lineEvidence(line, rollup.sourceObjects, options) };
+  }
+
+  function getObjectLines(projectId, sourceObjectId) {
+    const rollup = getProject(projectId).rollup;
+    const result = objectLines(sourceObjectId, rollup.lines, rollup.sourceObjects);
+    if (!result.object) throw new NotFoundError(`Source object ${sourceObjectId} not found in this project.`);
+    return { projectId, ...result };
+  }
+
+  /* Queue traversal: one rollup load and one queue build per step, whatever the
+     queue length, so working the queue is one screen with no hunting. */
+  function getQueueStep(projectId, { index = 0, on = new Date().toISOString().slice(0, 10), margin } = {}) {
+    const rollup = getProject(projectId).rollup;
+    const queue = getExceptionQueue(projectId, { on, rollup });
+    const total = queue.groups.length;
+    if (!total) return { projectId, index: 0, total: 0, exception: null, evidence: null, hasNext: false, hasPrevious: false };
+    const position = Math.max(0, Math.min(Number(index) || 0, total - 1));
+    const group = queue.groups[position];
+    const line = group.measurement ? rollup.lines.find((candidate) => candidate.measurement === group.measurement) : null;
+    return {
+      projectId, index: position, total,
+      rankedBy: queue.rankedBy, caveat: queue.caveat,
+      exception: group,
+      evidence: line ? lineEvidence(line, rollup.sourceObjects, { margin }) : null,
+      hasNext: position < total - 1,
+      hasPrevious: position > 0,
+      nextIndex: position < total - 1 ? position + 1 : null,
+      previousIndex: position > 0 ? position - 1 : null
     };
   }
 
@@ -848,10 +889,13 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return [...latest.values()];
   }
 
-  function getExceptionQueue(projectId, { on = new Date().toISOString().slice(0, 10) } = {}) {
+  function getExceptionQueue(projectId, { on = new Date().toISOString().slice(0, 10), rollup = null } = {}) {
     const project = requireProject(projectId);
     const ranker = rankerFor(projectId, on);
-    const raw = [...currentRunsFor(project).flatMap((run) => exceptionsForRun(run)), ...rateExceptionsFor(project, on), ...catalogueExceptionsFor(project)];
+    /* The rate and catalogue checks both need the rollup. Load it once here and
+       pass it down rather than letting each rebuild the tree. */
+    const tree = rollup || getProject(projectId).rollup;
+    const raw = [...currentRunsFor(project).flatMap((run) => exceptionsForRun(run)), ...rateExceptionsFor(project, on, tree), ...catalogueExceptionsFor(project, tree)];
     const resolvedKeys = new Set(activeResolutions(projectId).map((resolution) => resolution.groupKey));
     const open = raw.filter((exception) => !resolvedKeys.has(exception.groupKey));
     const exceptions = ranker.order(open);
@@ -873,12 +917,12 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   /* A rate outside its validity window must not quietly price a BOQ. It becomes
      a blocking exception in the same queue as every other signal -- this is what
      makes merge-gate Q8 answerable rather than vacuous. */
-  function rateExceptionsFor(project, on) {
+  function rateExceptionsFor(project, on, rollup = null) {
     const book = currentRateBook(project.id);
     if (!book) return [];
     const catalogue = currentCatalogue(project.id);
     const out = [];
-    for (const line of getProject(project.id).rollup.lines) {
+    for (const line of (rollup || getProject(project.id).rollup).lines) {
       /* Rates price the catalogue item's code, not the internal measurement
          name. Looking up by measurement here would find nothing once a
          catalogue exists, and an expired rate would stop being detected. */
@@ -1076,10 +1120,10 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
 
   /* geometry -> rules -> items -> rates. Each rollup line resolves to a
      catalogue item first; the item's code is what the rate book prices. */
-  function catalogueExceptionsFor(project) {
+  function catalogueExceptionsFor(project, rollup = null) {
     const catalogue = currentCatalogue(project.id);
     const out = [];
-    for (const line of getProject(project.id).rollup.lines) {
+    for (const line of (rollup || getProject(project.id).rollup).lines) {
       const mapped = applyCatalogue({ measurement: line.measurement, unit: line.unit }, catalogue);
       if (mapped.status === 'mapped') continue;
       out.push({
@@ -1602,7 +1646,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return assignSourceDocument(sourceDocumentId, { projectId: storey.projectId, buildingId: storey.buildingId, storeyId, ...(typicalMultiplier === undefined && typicalStoreyMultiplier === undefined ? {} : { typicalMultiplier: typicalStoreyMultiplier ?? typicalMultiplier }) });
   }
 
-  return { publishCatalogue, getCatalogues: cataloguesFor, exportBoq, publishRateBook, getPricedBoq, getRateBooks: rateBooksFor, recordVendorOffer, getVendorOffers, selectVendorOffer, rankExceptions, getExceptionQueue, resolveExceptionGroup, getResolutions, recordQuantityAffectingResolution, proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+  return { getLineEvidence, getObjectLines, getQueueStep, publishCatalogue, getCatalogues: cataloguesFor, exportBoq, publishRateBook, getPricedBoq, getRateBooks: rateBooksFor, recordVendorOffer, getVendorOffers, selectVendorOffer, rankExceptions, getExceptionQueue, resolveExceptionGroup, getResolutions, recordQuantityAffectingResolution, proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
 }
 
 function classifyDocument(run, sourceDocument, entities) {

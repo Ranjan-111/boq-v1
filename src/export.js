@@ -71,13 +71,21 @@ function buildArtefact(snapshot) {
   }
   rows.sort((left, right) => left.sortOrder - right.sortOrder || String(left.itemCode).localeCompare(String(right.itemCode)));
 
-  /* Accumulate exact, round once -- the same rule #15 established. */
+  /* The printed total is the sum of the printed row amounts, so an estimator can
+     tie the column by hand. "The total doesn't add up" is indefensible to a
+     contractor, and a document nobody can check is not trusted.
+
+     This overrules #15's accumulate-exact rule at the presentation boundary and
+     nowhere else: the exact figure is computed alongside and carried in the
+     provenance sidecar, and every internal total still accumulates exact. */
   const priced = rows.filter((row) => Number.isFinite(row.amount));
   const exact = priced.reduce((sum, row) => sum + row.amount, 0);
+  const printed = priced.reduce((sum, row) => sum + roundMoney(row.amount), 0);
   const total = {
     currency: stamp.currency,
     exactAmount: exact,
-    amount: roundMoney(exact),
+    exactRounded: roundMoney(exact),
+    amount: roundMoney(printed),
     pricedLines: priced.length,
     unpricedLines: rows.length - priced.length,
     complete: rows.length > 0 && priced.length === rows.length

@@ -3,7 +3,7 @@
 **Baseline commit:** see `git log -1` — the R2 unified provenance record.
 **Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`,
 then replacing the two per-tier provenance shapes with one record (R2).
-**Suite:** 285 tests, all passing together (`npm test`).
+**Suite:** 301 tests, all passing together (`npm test`).
 
 ## What `main` now contains
 
@@ -41,6 +41,7 @@ src/rates.js          versioned rate books and money arithmetic (#15)
 src/vendors.js        eligible vendor offers (#16)
 src/catalogue.js      studio item catalogue: measurement -> BOQ item (#24)
 src/export.js         reproducible approved exports, CSV + XLSX + sidecar (#17)
+src/workspace.js      line<->object evidence, signed breakdown, viewports (#14)
 src/classification.js evidence fusion, studio mappings, stable digest()
 src/dxf.js            DXF parse, unit resolution, measurement rules
 src/ocr-results.js    OCR normalization, forbidden-field enforcement
@@ -677,6 +678,74 @@ hand-rolled with fixed zip timestamps so the same artefact zips to the same byte
 dependency. A machine-readable **JSON provenance sidecar** ships alongside, carrying
 every line's contributions and the source objects they resolve to **with geometry**, so
 a delivered number is traceable without the application.
+
+## Workspace API (#14) — backend half implemented
+
+The visual workspace is a later frontend batch. This is the API it needs, plus an
+unstyled dev probe to prove it works. Every field was already present -- `bounds`
+precomputed (3a), `sign` required (R2), the navigation tree on the SourceObject -- so
+this assembles rather than adds.
+
+### Line -> evidence, one call
+
+`getLineEvidence(projectId, measurement)` returns navigation target, the source objects
+with `bounds`/`geometrySource`/`coordinateSpace`, every contribution with its `sign` and
+tier, a **server-computed viewport**, the signed breakdown and the tier breakdown. The
+client needs no geometry logic to know where to look.
+
+**Spans are reported, never resolved silently.** Objects may sit in more than one sheet
+or storey. When they do, `spansMultiple` is true, `navigate.storeyId` is `null` rather
+than a guess, and `viewportsByStorey` gives one rectangle per storey — because one
+rectangle cannot span two storeys. Navigating to one of several is a wrong answer that
+looks like a right one.
+
+**Degenerate bounds get a viewing extent, flagged as invented.** An `insertion-point`
+object has no measurable extent; fitting to it would give a zero-area rectangle. The
+viewport widens to a minimum and sets `degenerate: true` with a note that the extent is
+a display affordance, never a measurement.
+
+### Object -> lines, the reverse
+
+`getObjectLines(projectId, sourceObjectId)` answers "what is this wall costing me":
+every line the object contributes to, with sign, net contribution and share of the line.
+Proven to be the **exact inverse** of line → objects, signs included.
+
+### The signed breakdown
+
+Today the BOQ shows 143.79 with no indication anything was subtracted. On
+`clean-plan.dxf`:
+
+```
+Gross 157.2 m², less 4 openings totalling 13.41 m², net 143.79 m².
+   deduct 3.78 m² via dxf-wall-plaster-v1  (10E)
+   deduct 3.15 m² via dxf-wall-plaster-v1  (10F)
+   deduct 2.88 m² via dxf-wall-plaster-v1  (110)
+   deduct 3.60 m² via dxf-wall-plaster-v1  (111)
+```
+
+Each deduction names its rule and the object it was taken against. A line with no
+deductions reports an empty list and `deductionTotal: 0`, not a missing field.
+
+### Mixed-tier lines
+
+#17 reports a mixed line at its weakest tier. The workspace additionally gives
+`tierBreakdown` per tier and a `tier` on every contribution, so a line reported Tier C
+is visibly **part measured and part traced** rather than uniformly degraded.
+
+### Query cost
+
+Constant, measured at 1 / 10 / 30 storeys: **line → evidence 4 queries, queue step 8**.
+`lineEvidence` and `objectLines` are pure over one already-loaded rollup, so neither is
+N+1 in contributions; the queue step shares a single tree load with the queue build.
+
+### The printed total now ties by hand
+
+**This overrules #15's accumulate-exact rule at the presentation boundary, and nowhere
+else.** The printed total is the sum of the printed row amounts, because an estimator
+who cannot tie the column distrusts the document and "the total doesn't add up" is
+indefensible to a contractor. The exact figure is computed alongside as `exactAmount` /
+`exactRounded` and carried in the provenance sidecar. Every internal total still
+accumulates exact.
 
 ## Known gaps (not regressions — never built)
 

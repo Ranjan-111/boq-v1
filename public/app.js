@@ -1101,3 +1101,78 @@ if (approveButton) {
     await renderReview(projectId);
   });
 }
+
+
+/* ---- dev workspace probe (#14) ------------------------------------------
+   Proves the API a visual workspace will need: line -> evidence, object ->
+   lines, the signed breakdown, and queue traversal. Unstyled on purpose. */
+const wsSection = document.querySelector('#workspace');
+const wsLine = document.querySelector('#ws-line');
+const wsNavigate = document.querySelector('#ws-navigate');
+const wsBreakdown = document.querySelector('#ws-breakdown');
+const wsTiers = document.querySelector('#ws-tiers');
+const wsViewport = document.querySelector('#ws-viewport');
+const wsContributions = document.querySelector('#ws-contributions');
+const wsPosition = document.querySelector('#ws-position');
+let wsQueueIndex = 0;
+
+async function renderLineEvidence(projectId, measurement) {
+  const response = await fetch(`/api/projects/${projectId}/lines/${measurement}/evidence`);
+  if (!response.ok) return;
+  const evidence = await response.json();
+  wsSection.hidden = false;
+  wsNavigate.textContent = evidence.spansMultiple
+    ? `Spans ${evidence.spans.storeyIds.length} storeys / ${evidence.spans.sheetIds.length} sheets — ${evidence.spans.note}`
+    : `Navigate to building ${evidence.navigate.buildingId} / storey ${evidence.navigate.storeyId} / sheet ${evidence.navigate.sheetId}`;
+  wsNavigate.dataset.spansMultiple = String(evidence.spansMultiple);
+  wsBreakdown.textContent = evidence.breakdown.summary;
+  wsTiers.textContent = `Reported tier ${evidence.tier.tier} (${evidence.tier.label}) — ` + Object.entries(evidence.tierBreakdown)
+    .map(([tier, entry]) => `${tier}: ${entry.count} contribution(s), ${entry.quantity}`).join('; ');
+  wsViewport.textContent = evidence.viewport
+    ? `Viewport ${Math.round(evidence.viewport.minX)},${Math.round(evidence.viewport.minY)} to ${Math.round(evidence.viewport.maxX)},${Math.round(evidence.viewport.maxY)}${evidence.viewport.degenerate ? ' (extent invented for viewing)' : ''}`
+    : 'No viewport: this line resolved no geometry.';
+
+  const objectsById = new Map(evidence.sourceObjects.map((object) => [object.sourceObjectId, object]));
+  wsContributions.replaceChildren(...evidence.contributions.map((contribution) => {
+    const row = document.createElement('tr');
+    row.dataset.sign = contribution.sign;
+    const object = objectsById.get(contribution.sourceObjectId) || {};
+    for (const value of [contribution.sign, String(contribution.quantity), contribution.tier || '-', contribution.sourceObjectId, (object.bounds || []).map(Math.round).join(', ')]) {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.append(cell);
+    }
+    const reverse = document.createElement('td');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = 'what does this object affect?';
+    button.addEventListener('click', async () => {
+      const result = await (await fetch(`/api/projects/${projectId}/objects/${encodeURIComponent(contribution.sourceObjectId)}/lines`)).json();
+      reverse.textContent = result.lines.map((line) => `${line.measurement} ${line.contributions.map((entry) => `${entry.sign} ${entry.quantity}`).join(', ')}`).join(' | ');
+    });
+    reverse.append(button);
+    row.append(reverse);
+    return row;
+  }));
+}
+
+async function renderQueueStep(projectId, index) {
+  const step = await (await fetch(`/api/projects/${projectId}/queue/step?index=${index}`)).json();
+  if (!step.total) { wsPosition.textContent = 'queue empty'; return; }
+  wsQueueIndex = step.index;
+  wsPosition.textContent = `exception ${step.index + 1} of ${step.total} — ${step.exception.title} (ordered by ${step.rankedBy})`;
+  if (step.exception.measurement) await renderLineEvidence(projectId, step.exception.measurement);
+}
+
+document.querySelector('#ws-next')?.addEventListener('click', () => {
+  const projectId = document.querySelector('#project-status')?.dataset.projectId;
+  if (projectId) renderQueueStep(projectId, wsQueueIndex + 1);
+});
+document.querySelector('#ws-prev')?.addEventListener('click', () => {
+  const projectId = document.querySelector('#project-status')?.dataset.projectId;
+  if (projectId) renderQueueStep(projectId, Math.max(0, wsQueueIndex - 1));
+});
+wsLine?.addEventListener('change', () => {
+  const projectId = document.querySelector('#project-status')?.dataset.projectId;
+  if (projectId && wsLine.value) renderLineEvidence(projectId, wsLine.value);
+});

@@ -157,15 +157,36 @@ test('an unpriced line has no amount and the total declares itself incomplete', 
   assert.match(text, /incomplete/i, 'the document says so rather than presenting a partial figure as a total');
 });
 
-test('the exported total is rounded once, not accumulated from rounded rows', () => {
+test('the printed total equals the sum of the printed row amounts', () => {
+  // An estimator must be able to tie the column by hand; "the total doesn't add
+  // up" is indefensible to a contractor. The exact figure is kept alongside.
   const { application, boqVersionId } = approvedProject({
     rates: [{ itemCode: 'FIN-FL-001', unit: 'm²', amount: 1, validFrom: '2026-01-01', validTo: '2026-12-31' }]
   });
-  const artefact = application.exportBoq(boqVersionId, { format: 'csv' }).artefact;
+  const result = application.exportBoq(boqVersionId, { format: 'csv' });
+  const artefact = result.artefact;
+  const round = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
   const priced = artefact.rows.filter((row) => Number.isFinite(row.amount));
+  const sumOfPrinted = round(priced.reduce((sum, row) => sum + round(row.amount), 0));
+  assert.equal(artefact.total.amount, sumOfPrinted, 'the printed total ties to the printed column');
+
   const exact = priced.reduce((sum, row) => sum + row.amount, 0);
-  assert.equal(artefact.total.amount, Math.round((exact + Number.EPSILON) * 100) / 100);
-  assert.equal(artefact.total.exactAmount, exact, 'the exact figure is retained alongside the rounded one');
+  assert.equal(artefact.total.exactAmount, exact, 'the exact figure is retained');
+  assert.equal(artefact.total.exactRounded, round(exact));
+
+  const sidecar = JSON.parse(result.provenance.toString('utf8'));
+  assert.equal(sidecar.total.exactAmount, exact, 'and reaches the provenance sidecar');
+});
+
+test('a total that cannot tie by hand is not printed', () => {
+  // three rows of 0.125 print as 0.13 each: the printed total must be 0.39, the
+  // figure someone adding the column gets, not the accumulate-exact 0.38.
+  const { buildArtefact } = require('../src/export');
+  const stamp = { approvedBy: 'a', approvedAt: 't', rulesetVersion: 'r', assumptionsVersion: 1, rateBookVersion: 1, catalogueVersion: 1, parserVersion: 'p', tiers: ['A'], currency: 'INR', pricedOn: '2026-06-01' };
+  const lines = [0, 1, 2].map((index) => ({ measurement: `m${index}`, itemCode: `C${index}`, description: 'd', unit: 'm', quantity: 0.125, rate: 1, amount: 0.125, measurementStatus: 'measured', pricingStatus: 'priced', sortOrder: index, provenance: { contributions: [] } }));
+  const artefact = buildArtefact({ boqVersionId: 'v', projectName: 'P', catalogue: null, sourceObjects: [], stamp, lines });
+  assert.equal(artefact.total.amount, 0.39, 'ties to 0.13 + 0.13 + 0.13');
+  assert.equal(artefact.total.exactRounded, 0.38, 'while the exact figure is still recorded');
 });
 
 test('xlsx is the same artefact in a different encoding', () => {

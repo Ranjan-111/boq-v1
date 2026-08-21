@@ -116,6 +116,12 @@ function createServer(application = createApplication()) {
       }
       const runMatch = /^\/api\/runs\/(run_\d+)$/.exec(url.pathname);
       if (request.method === 'GET' && runMatch) return sendJson(response, 200, application.getRun(runMatch[1]));
+      const lineEvidenceMatch = /^\/api\/projects\/(project_\d+)\/lines\/([a-z_]+)\/evidence$/.exec(url.pathname);
+      if (request.method === 'GET' && lineEvidenceMatch) return sendJson(response, 200, application.getLineEvidence(lineEvidenceMatch[1], lineEvidenceMatch[2]));
+      const objectLinesMatch = /^\/api\/projects\/(project_\d+)\/objects\/(.+)\/lines$/.exec(url.pathname);
+      if (request.method === 'GET' && objectLinesMatch) return sendJson(response, 200, application.getObjectLines(objectLinesMatch[1], decodeURIComponent(objectLinesMatch[2])));
+      const queueStepMatch = /^\/api\/projects\/(project_\d+)\/queue\/step$/.exec(url.pathname);
+      if (request.method === 'GET' && queueStepMatch) return sendJson(response, 200, application.getQueueStep(queueStepMatch[1], { index: Number(url.searchParams.get('index') || 0) }));
       const exceptionsMatch = /^\/api\/projects\/(project_\d+)\/exceptions$/.exec(url.pathname);
       if (request.method === 'GET' && exceptionsMatch) return sendJson(response, 200, application.getExceptionQueue(exceptionsMatch[1]));
       const resolveMatch = /^\/api\/projects\/(project_\d+)\/exceptions\/resolve$/.exec(url.pathname);

@@ -116,6 +116,21 @@
     <!-- Dev-only review surface (#12/#13). Deliberately unstyled: the real
      frontend is a later batch and this gets thrown away. Debugging a review
      workflow through curl is a false economy. -->
+<!-- Dev-only workspace probe (#14). The visual workspace is a later frontend
+     batch; this exists to prove the API, and is deliberately unstyled. -->
+<section id="workspace" hidden>
+  <h2>Workspace probe</h2>
+  <p><label>Line <select id="ws-line"></select></label>
+     <button id="ws-prev" type="button">&larr; prev exception</button>
+     <span id="ws-position"></span>
+     <button id="ws-next" type="button">next exception &rarr;</button></p>
+  <p id="ws-navigate"></p>
+  <p id="ws-breakdown"></p>
+  <p id="ws-tiers"></p>
+  <p id="ws-viewport"></p>
+  <table><thead><tr><th>Sign</th><th>Qty</th><th>Tier</th><th>Source object</th><th>Bounds</th><th>Lines affected</th></tr></thead>
+    <tbody id="ws-contributions"></tbody></table>
+</section>
 <section id="exception-review" hidden>
   <h2>Exception queue</h2>
   <p id="queue-ordering"></p>
