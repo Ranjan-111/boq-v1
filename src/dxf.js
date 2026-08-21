@@ -386,4 +386,4 @@ function malformedEntityError(type, handle, detail = '') { return new InputError
 function unsupportedEntityError(type) { return new InputError(`Unsupported or unvalidated ${type} entity; use a native DXF re-export or simplify the drawing before processing.`); }
 class InputError extends Error {}
 
-module.exports = { DXF_VERSIONS, UNIT_DEFINITIONS, inspectDxf, measureDxf, parseDxf, resolveUnits, layerCategory, blockCategory, InputError };
+module.exports = { DXF_VERSIONS, UNIT_DEFINITIONS, inspectDxf, measureDxf, parseDxf, resolveUnits, layerCategory, blockCategory, placeBlockGeometry, InputError };

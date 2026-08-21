@@ -1,5 +1,5 @@
 const { createHash } = require('node:crypto');
-const { DXF_VERSIONS, inspectDxf, measureDxf, UNIT_DEFINITIONS, layerCategory, InputError } = require('./dxf');
+const { DXF_VERSIONS, inspectDxf, measureDxf, UNIT_DEFINITIONS, layerCategory, blockCategory, placeBlockGeometry, InputError } = require('./dxf');
 const { FUSION_VERSION, canonical, digest, patternMatches, mappingSnapshot, fuseEvidence, groupClassificationConflicts } = require('./classification');
 const { asBytes, sniffContent } = require('./ingestion/sniff');
 const { inspectPdf, PDF_VERSIONS } = require('./ingestion/pdf');
@@ -8,12 +8,14 @@ const { LIMITS, LimitError } = require('./ingestion/limits');
 const { OCR_LIMITS, normalizeOcrResults, presentOcrBatch } = require('./ocr-results');
 const { createSourceObject, createContribution, buildProvenance, measurementStatusFor, signedSum, PROVENANCE_VERSION } = require('./provenance');
 const { createRepository } = require('./repository');
+const { createVisionService, residualsFor, splitCounts } = require('./vision');
+const { coerceBoxes, boxToPolygon } = require('./vision/contract');
 const { normalizeAssumptions, getRuleset, listRulesets, ASSUMPTION_DEFINITIONS, DEFAULT_ASSUMPTIONS, DEFAULT_RULESET_VERSION, RuleError } = require('./rules');
 
 const VERSIONS = DXF_VERSIONS;
 const PROCESSING_STAGE_DELAY_MS = 150;
 
-function createApplication({ schedule = setTimeout, file = ':memory:', repository = createRepository({ file }), hydrateRunLimit = 200 } = {}) {
+function createApplication({ schedule = setTimeout, file = ':memory:', repository = createRepository({ file }), hydrateRunLimit = 200, vision = createVisionService() } = {}) {
   /* SQLite is the system of record. The maps below are a working set that is
      written through on every state transition and rehydrated from the store on
      construction -- one code path, not an in-memory alternative. Rollups, the
@@ -56,6 +58,10 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   function persistStorey(storey) { repository.saveEntity('storeys', storey.id, { building_id: storey.buildingId, project_id: storey.projectId, name: storey.name, level: storey.level ?? null, version: storey.version }, storey); }
   function persistBoqVersion(version) { repository.saveEntity('boq_versions', version.id, { project_id: version.projectId, version: version.version, label: version.label ?? null, status: version.status }, version); }
 
+  function persistMapping(mapping) {
+    repository.saveStudioMapping(mapping, { retired: retiredMappingIds.has(mapping.id), usedAsDraft: approvedDraftIds.has(mapping.id) });
+  }
+
   function hydrate() {
     const sequenceOf = (id) => Number.parseInt(String(id).split('_').at(-1), 10) || 0;
     for (const project of repository.allEntities('projects')) { projects.set(project.id, project); projectSequence = Math.max(projectSequence, sequenceOf(project.id)); }
@@ -63,6 +69,12 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     for (const storey of repository.allEntities('storeys')) { storeys.set(storey.id, storey); storeySequence = Math.max(storeySequence, sequenceOf(storey.id)); }
     for (const version of repository.allEntities('boq_versions')) { boqVersions.set(version.id, version); boqVersionSequence = Math.max(boqVersionSequence, sequenceOf(version.id)); }
     for (const document of repository.allSourceDocuments()) { sourceDocuments.set(document.id, document); sourceSequence = Math.max(sourceSequence, sequenceOf(document.id)); }
+    for (const { mapping, retired, usedAsDraft } of repository.allStudioMappings()) {
+      studioMappings.set(mapping.id, mapping);
+      if (retired) retiredMappingIds.add(mapping.id);
+      if (usedAsDraft) approvedDraftIds.add(mapping.id);
+      mappingSequence = Math.max(mappingSequence, sequenceOf(mapping.id));
+    }
     /* Bounded: the most recent window of runs, batch-loaded. Startup must not
        get slower every time the project processes another drawing. Anything
        outside the window is fetched on demand by loadRun. */
@@ -319,6 +331,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     const base = { id, version: 1, studioId: effectiveStudioId, scope: normalizedScope, target: normalizedTarget, status: 'draft', createdBy: text(createdBy, 'Mapping creator') || 'operator', approvedBy: null, createdAt: new Date().toISOString(), approvedAt: null, reason: text(reason, 'Mapping reason', 500) || '', supersedes: null, fusionVersion };
     const mapping = { ...base, contentHash: digest(base) };
     studioMappings.set(id, mapping);
+    persistMapping(mapping);
     return presentMapping(mapping);
   }
   function approveStudioMapping(mappingId, { approvedBy = 'operator', reason } = {}) {
@@ -333,6 +346,9 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     studioMappings.set(approved.id, approved);
     approvedDraftIds.add(draft.id);
     activeSiblings.forEach((mapping) => retiredMappingIds.add(mapping.id));
+    persistMapping(approved); persistMapping(draft);
+    activeSiblings.forEach(persistMapping);
+    repository.appendAudit({ kind: 'studio_mapping_approved', subjectId: approved.id, payload: { blockPattern: approved.scope.blockPattern || null, target: approved.target, approvedBy: approved.approvedBy } });
     return presentMapping(approved);
   }
   function retireStudioMapping(mappingId, { approvedBy = 'operator', reason = 'Retired by operator.' } = {}) {
@@ -344,6 +360,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     const retired = { ...base, contentHash: digest(base) };
     studioMappings.set(retired.id, retired);
     retiredMappingIds.add(mapping.id);
+    persistMapping(retired); persistMapping(mapping);
     return presentMapping(retired);
   }
   function getStudioMappings({ projectId, studioId } = {}) {
@@ -572,7 +589,10 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
           : ['png', 'jpeg'].includes(document.format)
             ? measureRaster(document, run)
             : measureDxf(document, run.units, run.parsedDocument, { versions: VERSIONS, typicalMultiplier: run.typicalMultiplier, runId: run.id, rulesetVersion: run.rulesetVersion, assumptions: run.assumptions?.values });
-        if (document.format === 'dxf') attachClassificationProvenance(run);
+        if (document.format === 'dxf') {
+          attachClassificationProvenance(run);
+          attachResiduals(run, document);
+        }
         completeStage(run, 'measurement');
         run.status = 'boq';
         setStage(run, 'boq', 'running');
@@ -599,6 +619,113 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     return presentRun(run, sourceDocuments.get(run.sourceDocumentId));
+  }
+
+  /* A residual a human already resolved for this studio is never asked again --
+     that memory is the compounding asset, so it is consulted before the model
+     and persisted rather than cached. */
+  function memorisedItemFor(studioId, blockName) {
+    if (!blockName) return null;
+    const candidates = [...studioMappings.values()].filter((mapping) => {
+      if (mapping.status !== 'approved' || retiredMappingIds.has(mapping.id)) return false;
+      const scopedStudio = mapping.studioId ?? mapping.scope.studioId ?? null;
+      if (scopedStudio !== (studioId ?? null)) return false;
+      const pattern = mapping.scope.blockPattern;
+      return pattern && canonical(pattern) === canonical(blockName);
+    });
+    const winner = candidates.sort((left, right) => right.version - left.version)[0];
+    return winner ? { mappingId: winner.id, item: winner.target.catalogItem || null, category: winner.target.category || null } : null;
+  }
+
+  function attachResiduals(run, sourceDocument) {
+    const found = residualsFor(run.parsedDocument, {
+      layerCategory,
+      blockCategory,
+      geometryFor: (entity) => placeBlockGeometry(run.parsedDocument.blocks?.[entity.block], entity)
+    });
+    run.residuals = found.map((residual, index) => {
+      const memorised = memorisedItemFor(sourceDocument.studioId ?? null, residual.blockName);
+      return {
+        id: `residual_${run.id}_${String(index + 1).padStart(3, '0')}`,
+        handle: residual.handle, blockName: residual.blockName, layer: residual.layer,
+        categoryKnown: residual.categoryKnown, missing: residual.missing,
+        sourceObjectId: `${sourceDocument.id}:v${sourceDocument.version}:dxf:${residual.handle}`,
+        status: memorised ? 'resolved_from_memory' : 'awaiting_human',
+        resolution: memorised ? { source: 'studio_mapping', ...memorised } : null,
+        proposal: null
+      };
+    });
+    run.residualSummary = { ...splitCounts(found), resolvedFromMemory: run.residuals.filter((residual) => residual.status === 'resolved_from_memory').length };
+  }
+
+  /* A model label is a proposal until a human accepts it. */
+  async function proposeResidualLabels(runId) {
+    const run = loadRun(runId);
+    if (!run) throw new NotFoundError('Processing run not found.');
+    for (const residual of run.residuals || []) {
+      if (residual.status !== 'awaiting_human') continue;
+      const object = (run.boq?.sourceObjects || []).find((candidate) => candidate.sourceObjectId === residual.sourceObjectId);
+      const proposal = await vision.proposeLabel({ ...residual, geometry: object?.geometry || [] });
+      residual.proposal = proposal;
+      repository.appendAudit({ kind: 'vision_label_proposed', subjectId: residual.sourceObjectId, payload: { runId: run.id, blockName: residual.blockName, status: proposal.status, label: proposal.label, model: proposal.model, prompt: proposal.prompt ? 'label-only' : null } });
+    }
+    persistRun(run);
+    return presentRun(run, sourceDocuments.get(run.sourceDocumentId));
+  }
+
+  /* The human decision supersedes the model, and is what gets memorised. */
+  function confirmResidual(runId, residualId, { item, category, confirmedBy = 'operator', reason = '' } = {}) {
+    const run = loadRun(runId);
+    if (!run) throw new NotFoundError('Processing run not found.');
+    const residual = (run.residuals || []).find((candidate) => candidate.id === residualId);
+    if (!residual) throw new NotFoundError('Residual not found.');
+    if (!String(item || '').trim()) throw new InputError('Confirming a residual requires the item it resolves to.');
+    const sourceDocument = sourceDocuments.get(run.sourceDocumentId);
+    const studioId = sourceDocument?.studioId ?? null;
+    if (!residual.blockName) throw new InputError('This residual has no block name to memorise against.');
+
+    const draft = createStudioMapping({
+      studioId, projectId: sourceDocument?.projectId || null,
+      scope: { blockPattern: residual.blockName },
+      target: { catalogItem: item, ...(category ? { category } : {}) },
+      reason: reason || `Operator confirmed ${residual.blockName} is ${item}.`,
+      createdBy: confirmedBy
+    });
+    const approved = approveStudioMapping(draft.id, { approvedBy: confirmedBy, reason: reason || 'Residual confirmed by operator.' });
+    residual.status = 'confirmed';
+    residual.resolution = { source: 'human', mappingId: approved.id, item, category: category || null, confirmedBy, at: approved.approvedAt };
+    repository.appendAudit({
+      kind: 'residual_confirmed', subjectId: residual.sourceObjectId,
+      payload: { runId: run.id, blockName: residual.blockName, item, confirmedBy, mappingId: approved.id,
+        supersededProposal: residual.proposal ? { label: residual.proposal.label, model: residual.proposal.model } : null }
+    });
+    persistRun(run);
+    return { residual: structuredClone(residual), mapping: approved };
+  }
+
+  /* Ask the model where the boundaries are. It is never asked for scale, and a
+     proposal cannot become a quantity until the operator has calibrated the
+     page and confirmed the region. */
+  async function proposeRasterRegions(runId, pageIdValue) {
+    const { run, page } = requireRasterPage(runId, pageIdValue);
+    if (page.calibration?.status !== 'confirmed') throw new ConflictError('Calibrate the raster page before asking for boundary proposals; without a scale a proposal cannot become a quantity.');
+    if (!vision.available || typeof vision.proposeRegions !== 'function') {
+      return { status: 'unavailable', reason: 'No vision model is configured; trace the regions by hand.', regions: [], dropped: 0 };
+    }
+    const width = Number(page.pixelWidth || page.width);
+    const height = Number(page.pixelHeight || page.height);
+    const image = getRasterImage(runId, pageIdValue);
+    const reply = await vision.proposeRegions({ runId, pageId: pageIdValue, imageWidth: width, imageHeight: height,
+      imageBase64: Buffer.from(image.content).toString('base64'), mediaType: image.mediaType });
+    if (reply.status !== 'proposed') return { status: reply.status || 'unavailable', reason: reply.reason || 'No proposal was returned.', regions: [], dropped: 0 };
+    const { boxes, dropped } = coerceBoxes({ boxes: reply.boxes }, { imageWidth: width, imageHeight: height });
+    const created = [];
+    for (const box of boxes) {
+      const result = createRasterRegion(runId, pageIdValue, { points: boxToPolygon(box, width, height), category: box.label, origin: 'model-proposed' });
+      created.push(result.region);
+    }
+    repository.appendAudit({ kind: 'raster_regions_proposed', subjectId: run.id, payload: { pageId: pageIdValue, model: reply.model || null, proposed: created.length, dropped, labels: boxes.map((box) => box.label) } });
+    return { status: 'proposed', model: reply.model || null, regions: created, dropped };
   }
 
   function getClassifications(runId) {
@@ -795,7 +922,11 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     if (page.regions.filter((region) => region.lifecycle !== 'deleted').length >= LIMITS.rasterRegions) throw new LimitError(`A raster page may contain at most ${LIMITS.rasterRegions} active regions.`, { limitName: 'rasterRegions', observed: page.regions.filter((region) => region.lifecycle !== 'deleted').length + 1, maximum: LIMITS.rasterRegions, stage: 'trace' });
     const points = validatePolygon(input?.points, page);
     const origin = input?.origin === 'model-proposed' ? 'model-proposed' : 'human-traced';
-    const region = { id: `region_${String(page.regions.length + 1).padStart(4, '0')}`, points, category: normalizeRasterCategory(input?.category), lifecycle: 'traced', origin, geometrySource: origin === 'model-proposed' ? 'model-proposed-confirmed' : 'human-traced', revision: 1, history: [], audit: [{ action: 'created', revision: 1 }] };
+    /* A proposal is not geometry until a human says so. Its lifecycle starts at
+       'proposed', and geometrySource is derived from that lifecycle rather than
+       stamped at creation -- otherwise an unconfirmed proposal would carry the
+       word "confirmed" from the moment it existed. */
+    const region = { id: `region_${String(page.regions.length + 1).padStart(4, '0')}`, points, category: normalizeRasterCategory(input?.category), lifecycle: origin === 'model-proposed' ? 'proposed' : 'traced', origin, revision: 1, history: [], audit: [{ action: origin === 'model-proposed' ? 'proposed' : 'created', revision: 1 }] };
     page.regions.push(region);
     persistRasterRun(run);
     enterRasterGate(run);
@@ -835,7 +966,11 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     if (!region) throw new NotFoundError('Raster region not found.');
     assertExpectedRevisions(page, region, input, true);
     if (!region.category) throw new InputError('Classify the raster region before confirmation.');
-    region.lifecycle = 'confirmed'; region.revision += 1; region.audit.push({ action: 'confirmed', revision: region.revision });
+    region.lifecycle = 'confirmed'; region.revision += 1;
+    const confirmedBy = String(input?.confirmedBy || 'operator');
+    region.confirmedBy = confirmedBy;
+    region.audit.push({ action: 'confirmed', revision: region.revision, by: confirmedBy, at: new Date().toISOString() });
+    repository.appendAudit({ kind: 'raster_region_confirmed', subjectId: region.id, payload: { runId: run.id, pageId: pageIdValue, origin: region.origin, category: region.category, confirmedBy } });
     persistRasterRun(run); enterRasterGate(run); persistRun(run);
     return { processingRun: presentRun(run, sourceDocuments.get(run.sourceDocumentId)), region: { ...region } };
   }
@@ -1034,7 +1169,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return assignSourceDocument(sourceDocumentId, { projectId: storey.projectId, buildingId: storey.buildingId, storeyId, ...(typicalMultiplier === undefined && typicalStoreyMultiplier === undefined ? {} : { typicalMultiplier: typicalStoreyMultiplier ?? typicalMultiplier }) });
   }
 
-  return { createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+  return { proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
 }
 
 function classifyDocument(run, sourceDocument, entities) {
@@ -1265,6 +1400,8 @@ function measureRaster(sourceDocument, run) {
         storeyId: sourceDocument.storeyId ?? null,
         sheetId: sourceDocument.sourceSheet || sourceDocument.filename || null,
         pageId: page.sourcePageId,
+        /* Only confirmed regions reach measurement (see the filter above), so a
+           model-proposed region here has been through a human decision. */
         geometrySource: region.origin === 'model-proposed' ? 'model-proposed-confirmed' : 'human-traced',
         coordinateSpace: 'raster-pixel',
         geometry: region.points,
@@ -1413,6 +1550,8 @@ function presentRun(run, sourceDocument) {
     assumptions: run.assumptions ? structuredClone(run.assumptions) : null,
     exportable: run.exportable === true,
     exportBlockedReasons: [...(run.exportBlockedReasons || [])],
+    residuals: structuredClone(run.residuals || []),
+    residualSummary: run.residualSummary ? { ...run.residualSummary } : null,
     projectId: run.projectId,
     buildingId: run.buildingId,
     storeyId: run.storeyId,

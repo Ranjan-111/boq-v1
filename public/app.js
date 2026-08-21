@@ -726,7 +726,7 @@ function drawRasterCanvas() {
   context.clearRect(0, 0, rasterCanvas.width, rasterCanvas.height);
   context.setTransform(scaleX, 0, 0, scaleY, 0, 0);
   const points = rasterPoints;
-  const polygons = [...(rasterPage.regions || []).map((region) => ({ points: region.points, color: region.lifecycle === 'deleted' ? '#ff7777' : region.lifecycle === 'confirmed' ? '#70d6a0' : '#ffcc66', deleted: region.lifecycle === 'deleted', proposed: region.geometrySource !== 'human-traced' })), ...(points.length ? [{ points, color: '#80bfff', deleted: false, proposed: true }] : [])];
+  const polygons = [...(rasterPage.regions || []).map((region) => ({ points: region.points, color: region.lifecycle === 'deleted' ? '#ff7777' : region.lifecycle === 'confirmed' ? '#70d6a0' : '#ffcc66', deleted: region.lifecycle === 'deleted', proposed: region.origin === 'model-proposed' })), ...(points.length ? [{ points, color: '#80bfff', deleted: false, proposed: true }] : [])];
   for (const polygon of polygons) {
     if (!polygon.points.length) continue;
     context.strokeStyle = polygon.color; context.fillStyle = polygon.color === '#70d6a0' ? 'rgba(112,214,160,.2)' : polygon.deleted ? 'rgba(255,119,119,.12)' : polygon.proposed ? 'rgba(128,191,255,.16)' : 'rgba(255,204,102,.2)'; context.lineWidth = Math.max(1, rasterPreview.canonicalWidth / 400); context.setLineDash(polygon.deleted || polygon.proposed ? [6, 4] : []);
@@ -741,8 +741,14 @@ function renderRasterRegions(run, page) {
   rasterRegions.replaceChildren(...(page.regions || []).map((region) => {
     const row = document.createElement('div');
     row.dataset.regionId = region.id;
-    row.className = `raster-region ${region.geometrySource === 'human-traced' ? 'human-traced' : 'proposed'}`;
-    const geometryLabel = region.geometrySource === 'human-traced' ? 'HUMAN TRACED' : 'PROPOSED';
+    /* Origin is a fact from the moment the region exists; whether a proposal has
+       been confirmed is its lifecycle. Showing them separately keeps an
+       unconfirmed model proposal from ever reading as accepted evidence. */
+    const modelProposed = region.origin === 'model-proposed';
+    row.className = `raster-region ${modelProposed ? 'proposed' : 'human-traced'}`;
+    const geometryLabel = modelProposed
+      ? (region.lifecycle === 'confirmed' ? 'MODEL PROPOSED · CONFIRMED' : 'MODEL PROPOSED · UNCONFIRMED')
+      : 'HUMAN TRACED';
     row.textContent = `${region.id} · ${geometryLabel} · ${region.category || 'unclassified'} · ${region.lifecycle}${region.lifecycle === 'deleted' ? ' (audit retained)' : ''}`;
     if (region.lifecycle !== 'deleted' && region.lifecycle !== 'confirmed') {
       const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = 'Confirm region'; confirm.dataset.action = 'confirm-region';

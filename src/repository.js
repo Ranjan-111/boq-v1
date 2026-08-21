@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS contributions (
 CREATE INDEX IF NOT EXISTS contributions_line ON contributions (boq_line_id);
 CREATE INDEX IF NOT EXISTS contributions_run ON contributions (run_id);
 
+/* Confirmed symbol identities, per studio. This is the compounding asset the
+   product depends on -- first project heavy, third nearly clean -- so it is
+   durable state, not a cache. */
+CREATE TABLE IF NOT EXISTS studio_mappings (
+  id TEXT PRIMARY KEY, studio_id TEXT, project_id TEXT, block_pattern TEXT,
+  status TEXT NOT NULL, version INTEGER NOT NULL, retired INTEGER NOT NULL DEFAULT 0,
+  used_as_draft INTEGER NOT NULL DEFAULT 0, state_json TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS studio_mappings_lookup ON studio_mappings (studio_id, block_pattern, status);
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, kind TEXT NOT NULL,
   subject_id TEXT, payload_json TEXT);
@@ -173,6 +182,18 @@ function createRepository({ file = ':memory:' } = {}) {
     run(`INSERT INTO ${table} (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')}) ON CONFLICT(id) DO UPDATE SET ${updates}`, ...values);
   }
   function allEntities(table) { return all(`SELECT state_json FROM ${table}`).map((row) => parse(row.state_json)); }
+  function saveStudioMapping(mapping, { retired = false, usedAsDraft = false } = {}) {
+    run(`INSERT INTO studio_mappings (id, studio_id, project_id, block_pattern, status, version, retired, used_as_draft, state_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET status = excluded.status, retired = excluded.retired,
+           used_as_draft = excluded.used_as_draft, state_json = excluded.state_json`,
+      mapping.id, mapping.studioId ?? mapping.scope?.studioId ?? null, mapping.scope?.projectId ?? null,
+      mapping.scope?.blockPattern ?? null, mapping.status, mapping.version, retired ? 1 : 0, usedAsDraft ? 1 : 0, json(mapping));
+  }
+  function allStudioMappings() {
+    return all('SELECT state_json, retired, used_as_draft FROM studio_mappings')
+      .map((row) => ({ mapping: parse(row.state_json), retired: row.retired === 1, usedAsDraft: row.used_as_draft === 1 }));
+  }
 
   /* Source objects are deduplicated on `sourceObjectId`, which R2 defines to be
      stable across reprocessing of one document version. Geometry is a pure
@@ -371,6 +392,7 @@ function createRepository({ file = ':memory:' } = {}) {
 
   return {
     saveSourceDocument, getSourceDocument, allSourceDocuments, allRunIds, recentRunIds, countRuns, getRuns, saveEntity, allEntities,
+    saveStudioMapping, allStudioMappings,
     saveRun, getRun, rollup, completedRuns, resultsFor, appendAudit, listAudit,
     countSourceObjects: () => get('SELECT COUNT(*) AS total FROM source_objects').total,
     measureQueries(work) { const before = queries; const result = work(); return { result, queries: queries - before }; },

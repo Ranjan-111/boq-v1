@@ -3,7 +3,7 @@
 **Baseline commit:** see `git log -1` — the R2 unified provenance record.
 **Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`,
 then replacing the two per-tier provenance shapes with one record (R2).
-**Suite:** 181 tests, all passing together (`npm test`).
+**Suite:** 214 tests, all passing together (`npm test`).
 
 ## What `main` now contains
 
@@ -35,6 +35,7 @@ src/provenance.js     the unified SourceObject / Contribution record (R2)
 src/repository.js     SQLite store and schema (R1) -- the only file that sees SQL
 src/rules.js          versioned measurement rules, rulesets and assumptions (#6)
 src/conformance.js    the four-outcome ledger (#18)
+src/vision/           server-side vision: contract, provider, crop, residuals (#10, #11)
 src/classification.js evidence fusion, studio mappings, stable digest()
 src/dxf.js            DXF parse, unit resolution, measurement rules
 src/ocr-results.js    OCR normalization, forbidden-field enforcement
@@ -337,14 +338,107 @@ A completed run with any `not_measurable` line is `exportable: false` and carrie
 `exportBlockedReasons`. Nothing consumes this yet — there is still no export surface —
 but the flag must not claim a readiness the numbers cannot back.
 
+## Vision (#10, #11) — implemented
+
+**The invariant.** A model may propose *what* a thing is, and on raster only *where*
+its boundary is. A model may never supply a number that becomes a quantity. On Tier A
+the geometry is already exact, so a label is the only useful machine contribution. On
+Tier C there is no geometry, so a boundary proposal is — but scale stays
+human-supplied, which is what makes it impossible for a model to independently produce
+a quantity. Strip the operator's calibration and every Tier C number is undefined;
+`proposeRasterRegions` refuses to run before the page is calibrated, so that is
+enforced rather than assumed.
+
+### Where the key lives
+
+Server config only: `BOQ_VISION_API_KEY` (or `VISION_API_KEY`), read by
+`readApiKey(process.env)`. Sent as the provider's `x-goog-api-key` **header**, never in
+a URL — query strings reach proxy logs, browser history and error reports, and a leaked
+key is a billing incident. The service object exposes no key property, and a test
+asserts a URL never contains the key.
+
+**With no key the system still works end to end.** `visionAvailable()` is false, every
+residual routes to a human with `proposal.status: 'unavailable'`, and no label is
+invented. Vision is optional, not load-bearing.
+
+### Model discovery
+
+Names are discovered from the provider's list endpoint and filtered to those
+advertising `generateContent`; a hardcoded name once broke when the provider retired
+it. `PREFERENCE_CHAIN` orders known-good names first and is used alone only when
+discovery returns nothing usable.
+
+`classifyProviderError` decides what a failure means. **Model-not-found advances the
+chain; auth does not** — walking the chain on a rejected key turns one clear failure
+into several confusing ones and hides the cause.
+
+### The label contract is a type, not a comment
+
+`coerceLabel` returns `{ label, category }` and **has no numeric field**. Whatever
+arrives — prose, JSON carrying `quantity`/`area`/`price`, a prompt-injection attempt —
+only a member of the closed ontology can leave. Tested against hostile replies and
+injections; no digit survives.
+
+Raster boundary replies pass `coerceBoxes`, whose box type is exactly
+`{x, y, width, height, label}` — normalised to the image, with nowhere to put a scale.
+Any `scale`/`calibration`/`pixelsPerMetre` in a reply is discarded. Degenerate slivers
+are dropped by **a fraction of image area, not an absolute pixel count**: an absolute
+floor passes slivers on a large scan and rejects real regions on a small one. Boxes
+that hang off the image are rejected rather than clamped into fiction.
+
+### Crops
+
+Rendered from the residual's **real footprint** (3a), as an 8-bit greyscale PNG built
+in-process with `zlib` — no native dependency. The renderer has **no text primitive**:
+not a decision to omit dimensions, but no code path that can place a glyph, so a crop
+cannot depict a number for a model to read off and echo back.
+
+### Residuals: two different unknowns
+
+| `missing` | meaning |
+|---|---|
+| `item` | the layer says furniture, `Block_17` says nothing — the **count is already right**, the identity needed to price it is missing |
+| `category+item` | neither layer nor block name resolves it |
+
+The first is the common case in real drawings, and it is the commercially important
+one. `residualSummary` reports `{ total, itemUnknown, categoryUnknown, resolvedFromMemory }`.
+
+### Memorised confirmations — the compounding asset
+
+When a human resolves a residual, `confirmResidual` creates **and approves** a studio
+mapping scoped to `(studioId, blockPattern)`. The same symbol is never asked again for
+that studio, and memory is scoped to the studio that confirmed it — another studio does
+not inherit a decision it did not make.
+
+**This is persisted**, in a `studio_mappings` table with its own index. It was
+previously in-memory only and vanished on restart, which defeated the entire premise:
+first project heavy, third nearly clean is a switching cost, not a cache.
+
+### Proposals are not geometry
+
+A model-proposed raster region starts at `lifecycle: 'proposed'`. Measurement only ever
+reads `lifecycle === 'confirmed'` regions, and the raster gate refuses to become ready
+while any active region is unconfirmed — so an unconfirmed proposal contributes nothing
+to any quantity, structurally rather than by a render-time filter.
+
+`geometrySource` is **derived at measurement from origin plus lifecycle**, not stamped
+at creation. Previously a model-proposed region carried `model-proposed-confirmed` from
+the moment it existed, before any human had seen it. The UI now shows `region.origin`
+(a fact from creation) and the lifecycle separately, so an unconfirmed proposal cannot
+read as accepted evidence.
+
+Every proposal and every confirmation is on the audit trail
+(`raster_regions_proposed`, `raster_region_confirmed`, `vision_label_proposed`,
+`residual_confirmed`), and a confirmation records the proposal it superseded.
+
 ## Known gaps (not regressions — never built)
 
 - **No BOQ export surface exists.** No CSV/XLSX/download path anywhere in `src/`.
   Merge-gate questions about exports are therefore vacuous today, not satisfied.
 - **No rate book, vendor or pricing** in the Node application.
-- **`vision.js` is prototype-only and browser-keyed.** It calls the model provider
-  directly from the page with an operator-pasted key, and nothing in `src/` imports it.
-  It cannot ship (research question R4).
+- **`vision.js` (repository root) is the retired prototype.** Superseded by
+  `src/vision/`; kept only as the prototype artefact it always was. Nothing in `src/`
+  imports it.
 
 ## Branch topology that produced this
 
