@@ -11,6 +11,8 @@ const { createRepository } = require('./repository');
 const { createVisionService, residualsFor, splitCounts } = require('./vision');
 const { coerceBoxes, boxToPolygon } = require('./vision/contract');
 const { exceptionsForRun, groupExceptions, createImpactRanker } = require('./exceptions');
+const { createRateBook, priceLine, totalOf, isStale, findRate, RateError } = require('./rates');
+const { createVendorOffer, eligibleOffers, VendorError } = require('./vendors');
 const { normalizeAssumptions, getRuleset, listRulesets, ASSUMPTION_DEFINITIONS, DEFAULT_ASSUMPTIONS, DEFAULT_RULESET_VERSION, RuleError } = require('./rules');
 
 const VERSIONS = DXF_VERSIONS;
@@ -38,6 +40,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   let boqVersionSequence = 0;
   let mappingSequence = 0;
   let resolutionSequence = 0;
+  let offerSequence = 0;
 
   const TRANSIENT_RUN_FIELDS = ['parsedDocument'];
   function persistRun(run) {
@@ -251,14 +254,14 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     }
   }
 
-  function approveBoqVersion(boqVersionId, { approvedBy = 'operator', reason = '' } = {}) {
+  function approveBoqVersion(boqVersionId, { approvedBy = 'operator', reason = '', on = new Date().toISOString().slice(0, 10) } = {}) {
     const version = boqVersions.get(boqVersionId);
     if (!version) throw new NotFoundError('BOQ version not found.');
     const project = requireProject(version.projectId);
     if (version.status === 'approved') throw new ConflictError('This BOQ version is already approved.');
     /* `exportable` was found claiming a readiness the numbers could not back.
        `approved` must not acquire the same problem. */
-    const queue = getExceptionQueue(project.id);
+    const queue = getExceptionQueue(project.id, { on });
     if (queue.counts.blocking > 0) {
       throw new ConflictError(`Cannot approve while ${queue.counts.blocking} blocking exception${queue.counts.blocking === 1 ? '' : 's'} remain open: ${queue.exceptions.filter((exception) => exception.severity === 'blocking').slice(0, 3).map((exception) => exception.title).join('; ')}.`);
     }
@@ -269,6 +272,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     version.approvedAssumptionsVersion = project.assumptions.version;
     version.approvedRulesetVersion = project.rulesetVersion;
     version.approvedRunIds = currentRunsFor(project).map((run) => run.id);
+    version.approvedRateBookVersion = currentRateBook(project.id)?.version ?? null;
     version.approvedAt = new Date().toISOString();
     delete version.staleReason;
     delete version.staleAt;
@@ -758,10 +762,10 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return [...latest.values()];
   }
 
-  function getExceptionQueue(projectId) {
+  function getExceptionQueue(projectId, { on = new Date().toISOString().slice(0, 10) } = {}) {
     const project = requireProject(projectId);
-    const ranker = createImpactRanker({ rateSource });
-    const raw = currentRunsFor(project).flatMap((run) => exceptionsForRun(run));
+    const ranker = rankerFor(projectId, on);
+    const raw = [...currentRunsFor(project).flatMap((run) => exceptionsForRun(run)), ...rateExceptionsFor(project, on)];
     const resolvedKeys = new Set(activeResolutions(projectId).map((resolution) => resolution.groupKey));
     const open = raw.filter((exception) => !resolvedKeys.has(exception.groupKey));
     const exceptions = ranker.order(open);
@@ -778,6 +782,34 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
       },
       groups, exceptions
     };
+  }
+
+  /* A rate outside its validity window must not quietly price a BOQ. It becomes
+     a blocking exception in the same queue as every other signal -- this is what
+     makes merge-gate Q8 answerable rather than vacuous. */
+  function rateExceptionsFor(project, on) {
+    const book = currentRateBook(project.id);
+    if (!book) return [];
+    const out = [];
+    for (const line of getProject(project.id).rollup.lines) {
+      const rate = findRate(book, line.measurement, book.locality);
+      if (!rate || !isStale(rate, on)) continue;
+      out.push({
+        id: `stale_rate:${project.id}:${line.measurement}`, type: 'stale_rate',
+        severity: 'blocking', blocks: ['approval', 'export'],
+        runId: null, projectId: project.id, sourceDocumentId: null,
+        measurement: line.measurement, sourceObjectId: null,
+        groupKey: `stale_rate:${line.measurement}`,
+        impact: { quantity: line.quantity ?? null, unit: line.unit ?? null },
+        title: `The rate for ${line.label || line.measurement} has expired`,
+        raisedBecause: `The rate in ${book.label || book.id} v${book.version} was valid to ${rate.validTo}, which is before ${on}. An expired rate must not price a BOQ.`,
+        resolutionOptions: [
+          { action: 'publish_rate_book', label: 'Publish a new rate book version with a current rate' },
+          { action: 'price_as_of', label: 'Price this BOQ as of a date the rate covered' }
+        ]
+      });
+    }
+    return out;
   }
 
   /* Latest decision per group. Superseded rows stay in the table; they are just
@@ -868,6 +900,116 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     const resolution = appendResolution(projectId, { groupKey, action, resolvedBy, reason, values, rulesetVersion: rulesetVersion ?? null });
     updateProjectAssumptions(projectId, { values, rulesetVersion, reason: reason || `Resolution ${resolution.id}`, updatedBy: resolvedBy });
     return resolution;
+  }
+
+  /* --- rate books (#15) ------------------------------------------------ */
+
+  function rateBooksFor(projectId) { return repository.listRateBooks(projectId); }
+
+  function currentRateBook(projectId, version = null) {
+    const books = rateBooksFor(projectId);
+    if (!books.length) return null;
+    if (version !== null) return books.find((book) => book.version === version) || null;
+    return books.reduce((latest, book) => (book.version > latest.version ? book : latest), books[0]);
+  }
+
+  /** Publishing never edits: each call is the next immutable version. */
+  function publishRateBook(projectId, { studioId, label = '', currency, locality = null, source, rates = [], kind = 'studio', publishedOn = null } = {}) {
+    const project = requireProject(projectId);
+    const existing = rateBooksFor(projectId);
+    const id = existing[0]?.id || `ratebook_${String(existing.length + 1).padStart(4, '0')}_${project.id}`;
+    const book = createRateBook({
+      id, studioId: studioId || studioIdForGroup(project, null) || 'studio_default',
+      label, version: existing.length + 1, currency, locality, source, rates, kind, publishedOn
+    });
+    repository.saveRateBook(book, project.id);
+    repository.appendAudit({ kind: 'rate_book_published', subjectId: book.id, payload: { projectId: project.id, version: book.version, currency: book.currency, rateCount: book.rates.length, source: book.source } });
+    return book;
+  }
+
+  /** Prices the current rollup. Never invents a rate; an unpriced line has no
+      amount, which is a state and not a zero. */
+  function getPricedBoq(projectId, { on = new Date().toISOString().slice(0, 10), rateBookVersion = null } = {}) {
+    const project = requireProject(projectId);
+    const rollup = getProject(projectId).rollup;
+    const book = currentRateBook(projectId, rateBookVersion);
+    if (!book) {
+      return {
+        projectId: project.id, status: 'unavailable', pricedOn: on,
+        rateBookId: null, rateBookVersion: null, total: null,
+        reason: 'No rate book has been published for this project, so nothing here has an amount. That is different from an amount of zero.',
+        lines: rollup.lines.map((line) => ({ measurement: line.measurement, quantity: line.quantity, unit: line.unit, amount: null, status: 'no_rate_book', rate: null }))
+      };
+    }
+    const lines = rollup.lines.map((line) => priceLine(
+      { measurement: line.measurement, quantity: line.measurementStatus === 'not_measurable' ? null : line.quantity, unit: line.unit, measurementStatus: line.measurementStatus },
+      book, { on }));
+    return {
+      projectId: project.id, status: 'priced', pricedOn: on,
+      rateBookId: book.id, rateBookVersion: book.version, currency: book.currency,
+      total: totalOf(lines), lines
+    };
+  }
+
+  /* --- vendor offers (#16) --------------------------------------------- */
+
+  function recordVendorOffer(projectId, offer) {
+    const project = requireProject(projectId);
+    const built = createVendorOffer({
+      id: `offer_${String(++offerSequence).padStart(4, '0')}`,
+      studioId: offer.studioId || studioIdForGroup(project, null) || 'studio_default',
+      ...offer
+    });
+    repository.saveVendorOffer(built, project.id);
+    repository.appendAudit({ kind: 'vendor_offer_recorded', subjectId: built.id, payload: { projectId: project.id, vendorId: built.vendorId, itemCode: built.itemCode, validTo: built.validTo, source: built.source } });
+    return built;
+  }
+
+  function getVendorOffers(projectId, itemCode, { on = new Date().toISOString().slice(0, 10), unit = null } = {}) {
+    const project = requireProject(projectId);
+    const studioId = studioIdForGroup(project, null) || 'studio_default';
+    const line = getProject(projectId).rollup.lines.find((candidate) => candidate.measurement === itemCode);
+    const result = eligibleOffers(repository.listVendorOffers(project.id), { itemCode, studioId, unit: unit ?? line?.unit ?? null, on });
+    const selected = activeResolutions(projectId).find((resolution) => resolution.groupKey === `vendor_selection:${itemCode}`);
+    /* The current selection is reported as history, not as a default: it says
+       what a human chose, it does not pre-choose for the next one. */
+    return { ...result, selectionOnRecord: selected ? { offerId: selected.offerId, selectedBy: selected.resolvedBy, at: selected.at } : null };
+  }
+
+  function selectVendorOffer(projectId, { itemCode, offerId, selectedBy = 'operator', reason = '', on = new Date().toISOString().slice(0, 10) } = {}) {
+    const project = requireProject(projectId);
+    const available = getVendorOffers(projectId, itemCode, { on });
+    const offer = available.offers.find((candidate) => candidate.id === offerId);
+    if (!offer) {
+      const stale = available.stale.find((candidate) => candidate.id === offerId);
+      if (stale) throw new InputError(`That vendor offer is not eligible: ${stale.reason}`);
+      throw new NotFoundError('Vendor offer not found for this item.');
+    }
+    const resolution = appendResolution(projectId, {
+      groupKey: `vendor_selection:${itemCode}`, action: 'select_vendor_offer',
+      resolvedBy: selectedBy, reason, itemCode, offerId: offer.id, vendorId: offer.vendorId
+    });
+    repository.appendAudit({ kind: 'vendor_offer_selected', subjectId: offer.id, payload: { projectId: project.id, itemCode, vendorId: offer.vendorId, vendorName: offer.vendorName, amount: offer.amount, currency: offer.currency, selectedBy, supersedes: resolution.supersedes } });
+    /* A vendor choice prices what was measured. It has no path back into
+       measurement, so no run is superseded and no quantity moves. */
+    return { resolution, offer };
+  }
+
+  function rankExceptions(projectId, exceptions, { on = new Date().toISOString().slice(0, 10) } = {}) {
+    return rankerFor(projectId, on).order(exceptions);
+  }
+
+  /* With a rate book present the queue ranks by money at risk and says so; with
+     none it stays an explicitly-labelled proxy. */
+  function rankerFor(projectId, on) {
+    const book = currentRateBook(projectId);
+    if (!book) return createImpactRanker({ rateSource: rateSource || null });
+    return createImpactRanker({ rateSource: {
+      rateFor: (measurement) => {
+        const rate = findRate(book, measurement, book.locality);
+        return rate && !isStale(rate, on) ? rate.amount : 0;
+      }
+    } });
   }
 
   function getClassifications(runId) {
@@ -1311,7 +1453,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return assignSourceDocument(sourceDocumentId, { projectId: storey.projectId, buildingId: storey.buildingId, storeyId, ...(typicalMultiplier === undefined && typicalStoreyMultiplier === undefined ? {} : { typicalMultiplier: typicalStoreyMultiplier ?? typicalMultiplier }) });
   }
 
-  return { getExceptionQueue, resolveExceptionGroup, getResolutions, recordQuantityAffectingResolution, proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+  return { publishRateBook, getPricedBoq, getRateBooks: rateBooksFor, recordVendorOffer, getVendorOffers, selectVendorOffer, rankExceptions, getExceptionQueue, resolveExceptionGroup, getResolutions, recordQuantityAffectingResolution, proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
 }
 
 function classifyDocument(run, sourceDocument, entities) {

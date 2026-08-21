@@ -19,7 +19,10 @@ const SEVERITIES = Object.freeze({
      identity needed to price it, so this blocks pricing, not measurement. */
   unidentified_symbol: { severity: 'advisory', blocks: ['pricing'] },
   unclassified_geometry: { severity: 'advisory', blocks: ['completeness'] },
-  low_confidence: { severity: 'advisory', blocks: ['review'] }
+  low_confidence: { severity: 'advisory', blocks: ['review'] },
+  /* Raised by the pricing layer rather than by a run: a rate outside its
+     validity window must never quietly price a BOQ. */
+  stale_rate: { severity: 'blocking', blocks: ['approval', 'export'] }
 });
 
 const EXCEPTION_TYPES = Object.freeze(Object.keys(SEVERITIES));

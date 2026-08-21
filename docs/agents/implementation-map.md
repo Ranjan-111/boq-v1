@@ -3,7 +3,7 @@
 **Baseline commit:** see `git log -1` — the R2 unified provenance record.
 **Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`,
 then replacing the two per-tier provenance shapes with one record (R2).
-**Suite:** 234 tests, all passing together (`npm test`).
+**Suite:** 263 tests, all passing together (`npm test`).
 
 ## What `main` now contains
 
@@ -37,6 +37,8 @@ src/rules.js          versioned measurement rules, rulesets and assumptions (#6)
 src/conformance.js    the four-outcome ledger (#18)
 src/vision/           server-side vision: contract, provider, crop, residuals (#10, #11)
 src/exceptions.js     one exception queue, grouping and the pluggable ranker (#12)
+src/rates.js          versioned rate books and money arithmetic (#15)
+src/vendors.js        eligible vendor offers (#16)
 src/classification.js evidence fusion, studio mappings, stable digest()
 src/dxf.js            DXF parse, unit resolution, measurement rules
 src/ocr-results.js    OCR normalization, forbidden-field enforcement
@@ -524,14 +526,86 @@ buttons per group, and approval with its blocking reason. Deliberately unstyled 
 real frontend is a later batch and this is thrown away. Debugging a review workflow
 through curl is a false economy.
 
+## Rate books and vendor offers (#15, #16) — implemented
+
+**A price is a fact with an owner and a date, or it does not exist.** Unlike every
+other number here, a rate is not derived from geometry — it comes from outside — so it
+carries where it came from, who supplied it, and when it was valid. A rate book without
+`source.label` and `source.suppliedBy`, or a rate without `validFrom`/`validTo`, is
+refused at construction. A rate with no provenance is worse than a missing rate,
+because a missing rate is visibly missing.
+
+### Shape and versioning
+
+```
+RateBook { id, studioId, version, currency, locality, kind, source{label,suppliedBy},
+           rates: [{ itemCode, unit, amount, validFrom, validTo, locality, source }] }
+```
+
+Immutable and versioned like a ruleset — `publishRateBook` always creates the next
+version, never an edit, and a `BEFORE UPDATE` trigger enforces it in the store. A BOQ
+priced in March still reproduces March's numbers in October: `getPricedBoq(…, { rateBookVersion: 1 })`
+prices at v1 after v2 exists.
+
+Currency is explicit and never assumed; `totalOf` refuses to sum mixed currencies.
+
+**Scope, deliberately narrow.** A studio's own rate book is the primary source. A dated
+published schedule can be imported as another book (`kind`), labelled with its
+publication date. **No such data is embedded in this repository** — licensing is
+unverified, so this is an import path only. No live feed, no scraping.
+
+### Never invent a rate
+
+| status | meaning |
+|---|---|
+| `priced` | a live rate applied |
+| `no_rate` | nothing prices this item — **amount is `null`, not zero** |
+| `stale_rate` | a rate exists but its window has passed — no amount |
+| `unit_mismatch` | the rate is per a different unit — refuses rather than multiplying |
+| `no_quantity` | nothing to price |
+
+A **zero rate** produces a real amount of `0` with status `priced`. That is a genuinely
+free item, and it is a different state from an unpriced one — the same discipline as
+`measured_zero` versus `not_measurable`, applied to money.
+
+### Staleness is an exception, not a default
+
+An expired rate raises a **blocking** `stale_rate` exception in the #12 queue and
+refuses approval. This is what makes **merge-gate Q8 answerable for the first time**.
+Vendor offers go stale identically and an expired offer cannot be selected.
+
+### Money arithmetic
+
+Amounts are stored unrounded; `roundMoney` is applied **once, at presentation**.
+Demonstrated: three lines of 0.125 round individually to 0.13 each (0.39), but the
+total rounds once to **0.38**. `amount = quantity × rate.amount` is re-derivable from
+the stored line, and if either input is missing the amount is absent rather than zero.
+
+### The ranker flips to real money
+
+With no rate book the #12 queue reports `rankedBy: 'quantity-proxy'` with its caveat.
+With one, it flips to **`money-at-risk`** and the caveat becomes `null`. The ordering
+genuinely differs: 27.72 m² at ₹9000 outranks 143.79 m² at ₹5, which the
+within-class proxy could never have expressed. Stale rates score zero — an expired
+price does not get to rank work.
+
+### An offer is an offer, not a selection
+
+`eligibleOffers` returns `offers`, `stale` and `ineligible`, and deliberately has **no**
+`selected`, `recommended` or `cheapest` field. Ordering is by vendor name, explicitly
+not by price — ordering by price is a recommendation wearing a sort order. Offers are
+scoped to the studio that holds them, like block-name mappings.
+
+A selection is a recorded decision through the same append-only `resolutions` path as
+every other human decision, with `supersedes` on a change of mind, and an audit entry.
+**A vendor choice never moves a quantity** — offers price what was measured and have no
+path back into measurement; no run is superseded by one.
+
 ## Known gaps (not regressions — never built)
 
 - **No BOQ export surface exists.** No CSV/XLSX/download path anywhere in `src/`.
   Merge-gate questions about exports are therefore vacuous today, not satisfied.
 - **No rate book, vendor or pricing** in the Node application.
-- **`vision.js` (repository root) is the retired prototype.** Superseded by
-  `src/vision/`; kept only as the prototype artefact it always was. Nothing in `src/`
-  imports it.
 
 ## Branch topology that produced this
 

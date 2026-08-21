@@ -92,6 +92,21 @@ BEGIN SELECT RAISE(ABORT, 'resolutions are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS resolutions_no_delete BEFORE DELETE ON resolutions
 BEGIN SELECT RAISE(ABORT, 'resolutions are append-only'); END;
 
+/* Rate books are immutable and versioned, like rulesets: a price change is a new
+   row, so a BOQ priced in March still reproduces March in October. */
+CREATE TABLE IF NOT EXISTS rate_books (
+  id TEXT NOT NULL, project_id TEXT NOT NULL, studio_id TEXT, version INTEGER NOT NULL,
+  currency TEXT NOT NULL, published_at TEXT NOT NULL, state_json TEXT NOT NULL,
+  PRIMARY KEY (id, version));
+CREATE INDEX IF NOT EXISTS rate_books_project ON rate_books (project_id, version);
+CREATE TRIGGER IF NOT EXISTS rate_books_no_update BEFORE UPDATE ON rate_books
+BEGIN SELECT RAISE(ABORT, 'rate books are immutable; publish a new version'); END;
+
+CREATE TABLE IF NOT EXISTS vendor_offers (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, studio_id TEXT, vendor_id TEXT NOT NULL,
+  item_code TEXT NOT NULL, valid_from TEXT NOT NULL, valid_to TEXT NOT NULL, state_json TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS vendor_offers_lookup ON vendor_offers (project_id, item_code);
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, kind TEXT NOT NULL,
   subject_id TEXT, payload_json TEXT);
@@ -212,6 +227,22 @@ function createRepository({ file = ':memory:' } = {}) {
       ? all('SELECT state_json FROM resolutions WHERE project_id = ? ORDER BY rowid', projectId)
       : all('SELECT state_json FROM resolutions ORDER BY rowid');
     return rows.map((row) => parse(row.state_json));
+  }
+  function saveRateBook(book, projectId) {
+    run('INSERT INTO rate_books (id, project_id, studio_id, version, currency, published_at, state_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      book.id, projectId, book.studioId ?? null, book.version, book.currency, new Date().toISOString(), json(book));
+  }
+  function listRateBooks(projectId) {
+    return all('SELECT state_json FROM rate_books WHERE project_id = ? ORDER BY version', projectId).map((row) => parse(row.state_json));
+  }
+  function saveVendorOffer(offer, projectId) {
+    run(`INSERT INTO vendor_offers (id, project_id, studio_id, vendor_id, item_code, valid_from, valid_to, state_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json`,
+      offer.id, projectId, offer.studioId ?? null, offer.vendorId, offer.itemCode, offer.validFrom, offer.validTo, json(offer));
+  }
+  function listVendorOffers(projectId) {
+    return all('SELECT state_json FROM vendor_offers WHERE project_id = ?', projectId).map((row) => parse(row.state_json));
   }
   function allStudioMappings() {
     return all('SELECT state_json, retired, used_as_draft FROM studio_mappings')
@@ -416,6 +447,7 @@ function createRepository({ file = ':memory:' } = {}) {
   return {
     saveSourceDocument, getSourceDocument, allSourceDocuments, allRunIds, recentRunIds, countRuns, getRuns, saveEntity, allEntities,
     saveStudioMapping, allStudioMappings, appendResolution, listResolutions,
+    saveRateBook, listRateBooks, saveVendorOffer, listVendorOffers,
     saveRun, getRun, rollup, completedRuns, resultsFor, appendAudit, listAudit,
     countSourceObjects: () => get('SELECT COUNT(*) AS total FROM source_objects').total,
     measureQueries(work) { const before = queries; const result = work(); return { result, queries: queries - before }; },
