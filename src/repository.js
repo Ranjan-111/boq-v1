@@ -140,6 +140,32 @@ function createRepository({ file = ':memory:' } = {}) {
     });
   }
   function allRunIds() { return all('SELECT id FROM processing_runs ORDER BY rowid').map((row) => row.id); }
+  /* Most recent first, so a bounded startup keeps the runs anyone is likely to
+     look at and leaves the tail to be fetched on demand. */
+  function recentRunIds(limit = 200) { return all('SELECT id FROM processing_runs ORDER BY rowid DESC LIMIT ?', limit).map((row) => row.id); }
+  function countRuns() { return get('SELECT COUNT(*) AS total FROM processing_runs').total; }
+
+  /* Many runs in a bounded number of queries: one for the envelopes, three for
+     their lines, contributions and source objects. */
+  function getRuns(runIds = []) {
+    if (!runIds.length) return [];
+    const rows = all(`SELECT id, state_json FROM processing_runs WHERE id IN (${placeholders(runIds)})`, ...runIds);
+    const results = resultsFor(runIds);
+    const objectsById = new Map(results.sourceObjects.map((object) => [object.sourceObjectId, object]));
+    return rows.map((row) => {
+      const { boqShape, ...envelope } = parse(row.state_json);
+      if (!boqShape) return envelope;
+      const lines = results.linesByRun.get(row.id) || [];
+      const referenced = [...new Set(lines.flatMap((line) => line.provenance.contributions.map((entry) => entry.sourceObjectId)))];
+      return { ...envelope, boq: {
+        versions: boqShape.versions, ruleset: boqShape.ruleset,
+        ...(boqShape.assumptions ? { assumptions: boqShape.assumptions } : {}),
+        sourceObjects: referenced.map((id) => objectsById.get(id)).filter(Boolean),
+        aggregation: boqShape.aggregation,
+        ...(boqShape.unclassified ? { unclassified: boqShape.unclassified } : {}),
+        lines } };
+    });
+  }
   function saveEntity(table, id, columns, record) {
     const names = ['id', ...Object.keys(columns), 'state_json'];
     const values = [id, ...Object.values(columns), json(record)];
@@ -224,7 +250,7 @@ function createRepository({ file = ':memory:' } = {}) {
            boq_version_id = excluded.boq_version_id, state_json = excluded.state_json`,
       runRecord.id, runRecord.sourceDocumentId, runRecord.status, runRecord.superseded ? 1 : 0,
       runRecord.projectId ?? null, runRecord.buildingId ?? null, runRecord.storeyId ?? null,
-      runRecord.boqVersionId ?? null, json({ ...envelope, boqShape: boq ? { versions: boq.versions, ruleset: boq.ruleset, aggregation: boq.aggregation } : null }));
+      runRecord.boqVersionId ?? null, json({ ...envelope, boqShape: boq ? { versions: boq.versions, ruleset: boq.ruleset, aggregation: boq.aggregation, assumptions: boq.assumptions ?? null, unclassified: boq.unclassified ?? null } : null }));
     if (!boq) return;
     for (const object of boq.sourceObjects || []) putSourceObject(object);
     (boq.lines || []).forEach((line, position) => {
@@ -268,7 +294,7 @@ function createRepository({ file = ':memory:' } = {}) {
         }
       };
     });
-    return { ...envelope, boq: { versions: boqShape.versions, ruleset: boqShape.ruleset, sourceObjects: objectRows.map(rowToSourceObject), aggregation: boqShape.aggregation, lines } };
+    return { ...envelope, boq: { versions: boqShape.versions, ruleset: boqShape.ruleset, ...(boqShape.assumptions ? { assumptions: boqShape.assumptions } : {}), sourceObjects: objectRows.map(rowToSourceObject), aggregation: boqShape.aggregation, ...(boqShape.unclassified ? { unclassified: boqShape.unclassified } : {}), lines } };
   }
 
   /* Candidate runs for a set of documents, in one query. Which of them wins for
@@ -344,7 +370,7 @@ function createRepository({ file = ':memory:' } = {}) {
   }
 
   return {
-    saveSourceDocument, getSourceDocument, allSourceDocuments, allRunIds, saveEntity, allEntities,
+    saveSourceDocument, getSourceDocument, allSourceDocuments, allRunIds, recentRunIds, countRuns, getRuns, saveEntity, allEntities,
     saveRun, getRun, rollup, completedRuns, resultsFor, appendAudit, listAudit,
     countSourceObjects: () => get('SELECT COUNT(*) AS total FROM source_objects').total,
     measureQueries(work) { const before = queries; const result = work(); return { result, queries: queries - before }; },

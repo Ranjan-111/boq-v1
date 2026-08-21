@@ -3,7 +3,7 @@
 **Baseline commit:** see `git log -1` — the R2 unified provenance record.
 **Established:** 20 Aug 2026, by integrating the divergent codex branches into `main`,
 then replacing the two per-tier provenance shapes with one record (R2).
-**Suite:** 160 tests, all passing together (`npm test`).
+**Suite:** 181 tests, all passing together (`npm test`).
 
 ## What `main` now contains
 
@@ -34,6 +34,7 @@ src/application.js    lifecycle, run schema, PDF + raster measurement
 src/provenance.js     the unified SourceObject / Contribution record (R2)
 src/repository.js     SQLite store and schema (R1) -- the only file that sees SQL
 src/rules.js          versioned measurement rules, rulesets and assumptions (#6)
+src/conformance.js    the four-outcome ledger (#18)
 src/classification.js evidence fusion, studio mappings, stable digest()
 src/dxf.js            DXF parse, unit resolution, measurement rules
 src/ocr-results.js    OCR normalization, forbidden-field enforcement
@@ -187,6 +188,11 @@ transition and rehydrated from the store on construction — one code path, not 
 in-memory alternative implementation. Only `parsedDocument` is transient (a parse
 cache, re-derivable from the stored bytes).
 
+**Startup is bounded.** `hydrate()` loads the most recent `hydrateRunLimit` runs
+(default 200) in a batch, and anything outside that window is fetched on demand by
+`loadRun`. Measured constant at **11 queries** for 1, 10, 50 and 150 stored runs; it
+was previously linear (3 runs → 18 queries, 30 → 126).
+
 ### Migration trigger — noted, not acted on
 
 Move to Postgres when **either** is true: the project goes multi-tenant SaaS, or it
@@ -262,6 +268,74 @@ carrying the reason and the actual signed sum; the negative number is never
 published, and the contributions stay visible. A rollup that includes an unmeasurable
 line is itself `not_measurable`, so a partial sum is never presented as a complete
 one.
+
+## Conformance corpus (#18) — implemented
+
+`test/conformance/corpus.js` holds the expectations; `test/conformance.test.js` runs
+them as part of the suite. Expectations are keyed by **(fixture, rulesetVersion,
+assumptionsVersion)** because a ruleset changes quantities by design, and every
+expected value records **the arithmetic that produces it** — a contributor can see why
+143.79, not only that it is 143.79.
+
+**Coverage:** DXF clean (× 3 rulesets), DXF multi-storey with a typical multiplier,
+vector PDF, traced raster, and a rollup spanning all three tiers — plus 7 adversarial
+fixtures. 63 observations per run.
+
+`clean-plan-v1` reproduces every pre-#6 historical quantity exactly. That is the
+strongest regression signal in the repository: if it moves, the parser or the rule
+engine has drifted — it is not a policy change.
+
+### Adversarial fixtures assert behaviour, not numbers
+
+In `test/fixtures/adversarial/`. A corrupted drawing must never yield a confident BOQ.
+
+| Fixture | Expected behaviour |
+|---|---|
+| `no-insunits.dxf` | halts at unit resolution; no quantity exists |
+| `truncated.dxf` | rejected at the boundary, plain language |
+| `scaled-10x.dxf` | measured, but flagged implausible; confidence drops to LOW |
+| `garbage-layers.dxf` | classification degrades to `not_measurable`; counts survive on block names |
+| `no-hatch.dxf` | wall area `not_measurable`, never zero |
+| `exploded-furniture.dxf` | the four bare polylines are reported unclassifiable, not dropped |
+| `garbage-and-exploded.dxf` | worst case: only block-proven counts survive; everything else degrades |
+| (assumptions) | deductions exceeding geometry → `not_measurable` + `provenance.impossible` |
+| (limits) | oversized upload refused by the limits module at the boundary |
+
+### The four-outcome ledger
+
+Every observation lands in exactly one bucket: **correct**, **flagged uncertainty**
+(wrong or unknown, and the system said so), **confidently wrong** (wrong, unflagged,
+but something else gates the run), **unflagged financial error** (wrong, unflagged,
+nothing stops it reaching a BOQ).
+
+**The gate is `unflagged_financial_error === 0`** — not a threshold. A run with lower
+accuracy and zero unflagged errors is healthier than the reverse, which a single score
+would hide.
+
+**No headline accuracy percentage is computed, deliberately.** The corpus is synthetic;
+a percentage would read as a product-accuracy claim it cannot support. `summary()` has
+no `accuracy` field and a test asserts its absence.
+
+The summary artefact is written to `.conformance/ledger.json` (gitignored) and printed
+after every suite run.
+
+### Two behaviours this ticket had to add
+
+- **Implausible magnitude** (`src/rules.js`). Per source object, not per total: a
+  drawing exported at the wrong scale measures cleanly — the arithmetic is valid, the
+  input was not — so the only way to catch it is to ask whether a single room or wall
+  could plausibly be that size. Bands are loose by design, sized to catch a 10× scale
+  error rather than to second-guess an unusual building. A flagged line drops to
+  `confidence: LOW` and carries `provenance.plausibility`.
+- **Unclassified geometry** (`boq.unclassified`). Geometry no rule could consume is
+  reported with a reason and a resolvable `sourceObjectId`. Silently discarding it is
+  how a BOQ ends up confidently short.
+
+### `exportable` now means something
+
+A completed run with any `not_measurable` line is `exportable: false` and carries
+`exportBlockedReasons`. Nothing consumes this yet — there is still no export surface —
+but the flag must not claim a readiness the numbers cannot back.
 
 ## Known gaps (not regressions — never built)
 

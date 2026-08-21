@@ -1,5 +1,5 @@
 const { createSourceObject, createContribution, buildProvenance, measurementStatusFor, signedSum } = require('./provenance');
-const { getRuleset, getRule, normalizeAssumptions, DEFAULT_RULESET_VERSION, DEFAULT_ASSUMPTIONS } = require('./rules');
+const { getRuleset, getRule, normalizeAssumptions, checkPlausibility, DEFAULT_RULESET_VERSION, DEFAULT_ASSUMPTIONS } = require('./rules');
 
 const EXTERNAL_REFERENCE_ENTITY_TYPES = Object.freeze(['XREF', 'IMAGE', 'PDFUNDERLAY', 'DGNUNDERLAY']);
 const EXTERNAL_REFERENCE_BLOCK_FLAGS = 4 | 8;
@@ -86,9 +86,12 @@ function measureDxf(sourceDocument, units, parsedDocument, {
     perimeterOf: (entity) => polygonPerimeter(entity.points) * toMetres * typicalMultiplier
   };
 
+  const consumed = new Set();
   const lines = ruleset.ruleIds.map((ruleId) => {
     const rule = getRule(ruleId);
-    const contributions = rule.compute(context).map((intent) => createContribution({
+    const contributions = rule.compute(context).map((intent) => {
+      consumed.add(intent.entity);
+      return createContribution({
       sourceObjectId: register(intent.entity).sourceObjectId,
       measurement: rule.measurement,
       sign: intent.sign,
@@ -99,9 +102,33 @@ function measureDxf(sourceDocument, units, parsedDocument, {
       runId,
       typicalMultiplier,
       ruleInputs: { assumptions: resolvedAssumptions, settings: ruleset.settings }
-    }));
+    });
+    });
     return line(rule.measurement, rule.label, quantity(signedSum(contributions)), rule.unit, rule.evidence, contributions);
   });
+
+  /* Geometry no rule could use is reported rather than dropped. A drawing whose
+     furniture has been exploded to bare polylines, or whose layer names carry no
+     meaning, still contains that geometry -- silently discarding it is how a BOQ
+     ends up confidently short. */
+  const unclassified = [];
+  for (const entity of document.entities) {
+    if (!['HATCH', 'LWPOLYLINE', 'INSERT'].includes(entity.type)) continue;
+    if (consumed.has(entity)) continue;
+    const category = layerCategory(entity.layer) || blockCategory(entity.block);
+    const object = register(entity);
+    unclassified.push({
+      sourceObjectId: object.sourceObjectId,
+      handle: entity.handle,
+      type: entity.type,
+      layer: entity.layer,
+      block: entity.block || null,
+      category: category || null,
+      reason: category
+        ? `Recognised as ${category} but no rule in ${ruleset.version} measures a ${entity.type} for it; it may be exploded or drawn as bare geometry.`
+        : 'Neither the layer name nor a block name identifies what this is, so no rule could measure it.'
+    });
+  }
 
   return {
     versions: { ...versions, ruleset: ruleset.version },
@@ -109,6 +136,7 @@ function measureDxf(sourceDocument, units, parsedDocument, {
     assumptions: resolvedAssumptions,
     sourceObjects: [...sourceObjects.values()],
     aggregation: { scope: 'source_document', scopeId: sourceDocument.id },
+    unclassified,
     lines
   };
 }
@@ -337,15 +365,18 @@ function line(measurement, label, value, unit, evidence, contributions) {
     ? { reason: 'Deductions exceed the measured geometry, so this cannot be a quantity. Check the opening assumptions against the drawing.', signedSum: value }
     : null;
   const quantity = impossible ? 0 : value;
+  const plausibility = impossible ? null : checkPlausibility(measurement, contributions);
   return {
     measurement, label, quantity, unit,
-    confidence: { level: evidence.length === 2 ? 'HIGH' : 'MEDIUM', evidence },
+    /* A magnitude we cannot believe is not presented as a confident number. */
+    confidence: { level: plausibility ? 'LOW' : evidence.length === 2 ? 'HIGH' : 'MEDIUM', evidence },
     measurementStatus: impossible ? 'not_measurable' : measurementStatusFor(quantity, contributions),
     provenance: buildProvenance({
       contributions,
       quantity,
       measurementStatus: impossible ? 'not_measurable' : undefined,
-      ...(impossible ? { impossible } : {})
+      ...(impossible ? { impossible } : {}),
+      ...(plausibility ? { plausibility } : {})
     })
   };
 }

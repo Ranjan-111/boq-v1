@@ -113,3 +113,50 @@ test('a rollup stays a bounded number of queries as contributing runs grow', () 
   assert.equal(counts[0], counts[1], `rollup query count must not grow with contributing runs (${counts.join(' vs ')})`);
   repository.close();
 });
+
+test('startup cost does not grow with how many runs are stored', () => {
+  const { file, cleanup } = tempFile();
+  try {
+    const seeding = sync({ file });
+    const project = seeding.createProject({ name: 'Many runs' });
+    const building = seeding.createBuilding({ projectId: project.id, name: 'B' });
+    const measurements = [];
+    for (const target of [3, 30]) {
+      while (seeding.getProject(project.id).buildings[0].storeys.length < target) {
+        const index = seeding.getProject(project.id).buildings[0].storeys.length;
+        const storey = seeding.createStorey({ buildingId: building.id, name: `S${index}` });
+        const source = seeding.createSourceDocument({ filename: 'p.dxf', content: cleanPlan, projectId: project.id, buildingId: building.id, storeyId: storey.id, sourceSheet: `A-${index}` });
+        seeding.startProcessing(source.id);
+      }
+      // a fresh repository so the measurement covers only startup
+      const repository = createRepository({ file });
+      const { queries } = repository.measureQueries(() => createApplication({ schedule: (callback) => callback(), repository }));
+      measurements.push({ target, queries });
+      repository.close();
+    }
+    const [small, large] = measurements;
+    assert.equal(small.queries, large.queries,
+      `hydrate must be bounded: ${small.target} runs cost ${small.queries} queries, ${large.target} runs cost ${large.queries}`);
+    assert.ok(large.queries <= 20, `startup should be a handful of queries, took ${large.queries}`);
+  } finally { cleanup(); }
+});
+
+test('a run outside the hydrated window is still readable, loaded on demand', () => {
+  const { file, cleanup } = tempFile();
+  try {
+    const seeding = sync({ file });
+    const project = seeding.createProject({ name: 'Windowed' });
+    const first = seeding.createSourceDocument({ filename: 'a.dxf', content: cleanPlan, projectId: project.id, sourceSheet: 'A-first' });
+    const oldest = seeding.startProcessing(first.id);
+    const expected = seeding.getRun(oldest.id).boq.lines.find((line) => line.measurement === 'floor_area').quantity;
+
+    const reopened = createApplication({ schedule: (callback) => callback(), file, hydrateRunLimit: 1 });
+    for (let index = 0; index < 3; index += 1) {
+      const source = reopened.createSourceDocument({ filename: `x${index}.dxf`, content: cleanPlan, projectId: project.id, sourceSheet: `A-${index}` });
+      reopened.startProcessing(source.id);
+    }
+    const recovered = reopened.getRun(oldest.id);
+    assert.equal(recovered.status, 'completed', 'an evicted run is fetched from the store, not reported missing');
+    assert.equal(recovered.boq.lines.find((line) => line.measurement === 'floor_area').quantity, expected);
+  } finally { cleanup(); }
+});

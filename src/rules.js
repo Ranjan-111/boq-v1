@@ -62,7 +62,10 @@ function openings(context) {
   ]) {
     const width = openingWidth(entity, context);
     if (width === null) continue;
-    entries.push({ entity, width, height, area: width * height });
+    /* A typical storey repeated N times has N times the openings, exactly as it
+       has N times the wall. Scaling the gross but not the deduction understates
+       every deduction on a multiplied storey. */
+    entries.push({ entity, width, height, area: width * height * context.typicalMultiplier });
   }
   return entries;
 }
@@ -150,6 +153,32 @@ const RULESETS = Object.freeze({
   })
 });
 
+/* Order-of-magnitude sanity, per source object rather than per total. A drawing
+   exported at the wrong scale still measures cleanly -- the arithmetic is valid,
+   the input was not -- so the only way to catch it is to ask whether a single
+   room or wall could plausibly be this size. Bands are deliberately loose: they
+   exist to catch a 10x scale error, not to second-guess an unusual building. */
+const PLAUSIBILITY_BANDS = Object.freeze({
+  floor_area: { max: 500, unit: 'm\u00b2', subject: 'a single room' },
+  wall_plan: { max: 100, unit: 'm\u00b2', subject: 'a single wall' },
+  wall_masonry: { max: 300, unit: 'm\u00b3', subject: 'a single wall' },
+  wall_plaster: { max: 3000, unit: 'm\u00b2', subject: 'a single wall' },
+  skirting: { max: 200, unit: 'm', subject: 'a single room' }
+});
+
+function checkPlausibility(measurement, contributions = []) {
+  const band = PLAUSIBILITY_BANDS[measurement];
+  if (!band) return null;
+  const reasons = [];
+  for (const contribution of contributions) {
+    if (contribution.sign !== 'add') continue;
+    if (contribution.quantity > band.max) {
+      reasons.push(`${contribution.quantity} ${band.unit} is an implausible magnitude for ${band.subject} (over ${band.max} ${band.unit}); check the drawing's scale and units.`);
+    }
+  }
+  return reasons.length ? { flagged: true, reasons: [...new Set(reasons)].slice(0, 5), band: { ...band } } : null;
+}
+
 const DEFAULT_RULESET_VERSION = 'clean-plan-v2';
 
 function getRuleset(version = DEFAULT_RULESET_VERSION) {
@@ -168,6 +197,6 @@ function listRulesets() {
 
 module.exports = {
   RuleError, RULES, RULESETS, DXF_RULE_IDS, DEFAULT_RULESET_VERSION,
-  ASSUMPTION_DEFINITIONS, DEFAULT_ASSUMPTIONS,
+  ASSUMPTION_DEFINITIONS, DEFAULT_ASSUMPTIONS, PLAUSIBILITY_BANDS, checkPlausibility,
   normalizeAssumptions, getRuleset, getRule, listRulesets, openingWidth, openings
 };

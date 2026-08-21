@@ -13,7 +13,7 @@ const { normalizeAssumptions, getRuleset, listRulesets, ASSUMPTION_DEFINITIONS, 
 const VERSIONS = DXF_VERSIONS;
 const PROCESSING_STAGE_DELAY_MS = 150;
 
-function createApplication({ schedule = setTimeout, file = ':memory:', repository = createRepository({ file }) } = {}) {
+function createApplication({ schedule = setTimeout, file = ':memory:', repository = createRepository({ file }), hydrateRunLimit = 200 } = {}) {
   /* SQLite is the system of record. The maps below are a working set that is
      written through on every state transition and rehydrated from the store on
      construction -- one code path, not an in-memory alternative. Rollups, the
@@ -63,10 +63,23 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     for (const storey of repository.allEntities('storeys')) { storeys.set(storey.id, storey); storeySequence = Math.max(storeySequence, sequenceOf(storey.id)); }
     for (const version of repository.allEntities('boq_versions')) { boqVersions.set(version.id, version); boqVersionSequence = Math.max(boqVersionSequence, sequenceOf(version.id)); }
     for (const document of repository.allSourceDocuments()) { sourceDocuments.set(document.id, document); sourceSequence = Math.max(sourceSequence, sequenceOf(document.id)); }
-    for (const runId of repository.allRunIds()) {
-      const run = repository.getRun(runId);
+    /* Bounded: the most recent window of runs, batch-loaded. Startup must not
+       get slower every time the project processes another drawing. Anything
+       outside the window is fetched on demand by loadRun. */
+    runSequence = Math.max(runSequence, repository.countRuns());
+    for (const run of repository.getRuns(repository.recentRunIds(hydrateRunLimit))) {
       if (run) { runs.set(run.id, run); runSequence = Math.max(runSequence, sequenceOf(run.id)); }
     }
+  }
+
+  /* One code path for reading a run: the working set is a cache of the store,
+     not an alternative to it. */
+  function loadRun(runId) {
+    if (runs.has(runId)) return runs.get(runId);
+    const stored = repository.getRun(runId);
+    if (!stored) return undefined;
+    runs.set(runId, stored);
+    return stored;
   }
   hydrate();
 
@@ -573,23 +586,28 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     if (run.status === 'boq') {
       completeStage(run, 'boq');
       run.status = 'completed';
-      run.exportable = true;
+      /* A run that could not measure something is not an exportable BOQ. The
+         export surface does not exist yet, so nothing consumes this today --
+         but the flag must not claim readiness the numbers cannot back. */
+      const unmeasurable = (run.boq?.lines || []).filter((line) => line.measurementStatus === 'not_measurable');
+      run.exportable = unmeasurable.length === 0;
+      run.exportBlockedReasons = unmeasurable.map((line) => `${line.label || line.measurement} could not be measured; a zero here would silently delete a cost line.`);
     }
   }
 
   function getRun(runId) {
-    const run = runs.get(runId);
+    const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     return presentRun(run, sourceDocuments.get(run.sourceDocumentId));
   }
 
   function getClassifications(runId) {
-    const run = runs.get(runId);
+    const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     return { runId: run.id, fusionVersion: FUSION_VERSION, mappingSnapshot: presentMappingSnapshot(run.mappingSnapshot), classifications: structuredClone(run.classifications || []) };
   }
   function submitOcrResults(runId, pageIdValue, input) {
-    const run = runs.get(runId);
+    const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     const page = run.pages.find((candidate) => candidate.sourcePageId === pageIdValue);
     if (!page) throw new NotFoundError('OCR page not found.');
@@ -636,7 +654,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   }
 
   function getOcrResults(runId, pageIdValue) {
-    const run = runs.get(runId);
+    const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     if (pageIdValue !== undefined && !run.pages.some((page) => page.sourcePageId === pageIdValue)) throw new NotFoundError('OCR page not found.');
     const observations = run.ocr.observations.filter((observation) => pageIdValue === undefined || observation.pageId === pageIdValue);
@@ -644,13 +662,13 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   }
 
   function getOcrStatus(runId) {
-    const run = runs.get(runId);
+    const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     return { status: run.ocr.status, observationCount: run.ocr.observations.length, lastBatchKey: run.ocr.lastBatchKey };
   }
 
   function confirmSourceSetup(runId, setup) {
-    const run = runs.get(runId);
+    const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     if (run.superseded || !isCurrentSnapshot(run, sourceDocuments.get(run.sourceDocumentId))) throw new ConflictError('This run no longer matches the current source assignment. Reprocess the current source assignment.');
     if (run.status !== 'awaiting_setup') throw new ConflictError('This run is not awaiting PDF setup.');
@@ -678,7 +696,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   }
 
   function requireRasterPage(runId, pageIdValue) {
-    const run = runs.get(runId);
+    const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     const page = run.pages.find((candidate) => candidate.sourcePageId === pageIdValue);
     if (!page || page.route !== 'raster') throw new NotFoundError('Raster page not found.');
@@ -823,7 +841,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   }
 
   function getRasterImage(runId, pageIdValue) {
-    const run = runs.get(runId);
+    const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     if (!run.pages.some((page) => page.sourcePageId === pageIdValue)) throw new NotFoundError('Source page not found.');
     const source = sourceDocuments.get(run.sourceDocumentId);
@@ -853,7 +871,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
   }
 
   function reprocess(runId) {
-    const run = runs.get(runId);
+    const run = loadRun(runId);
     if (!run) throw new NotFoundError('Processing run not found.');
     if (run.superseded) throw new InputError('This processing run is superseded; reprocess the current source assignment instead.');
     return startProcessing(run.sourceDocumentId, { boqVersionId: run.boqVersionId, replaySetup: run.setup });
@@ -1393,6 +1411,8 @@ function presentRun(run, sourceDocument) {
     versions: run.versions,
     rulesetVersion: run.rulesetVersion || null,
     assumptions: run.assumptions ? structuredClone(run.assumptions) : null,
+    exportable: run.exportable === true,
+    exportBlockedReasons: [...(run.exportBlockedReasons || [])],
     projectId: run.projectId,
     buildingId: run.buildingId,
     storeyId: run.storeyId,
