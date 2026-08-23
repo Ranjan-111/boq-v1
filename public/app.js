@@ -360,6 +360,7 @@ projectForm.addEventListener('submit', async (event) => {
     projectStatus.dataset.ready = 'true';
     projectStatus.dataset.revision = '0';
     projectStatus.dataset.projectId = currentProject.id;
+    projectStatus.dataset.boqVersionId = currentProject.currentBoqVersionId || '';
     try { localStorage.setItem('boq.activeProject', currentProject.id); } catch { /* private mode */ }
     updateHeaderProject();
     renderProjectControls();
@@ -480,6 +481,9 @@ reassignSource.addEventListener('click', async () => {
 async function refreshProject() {
   if (!currentProject) return;
   currentProject = (await fetch(`/api/projects/${currentProject.id}`).then((result) => result.json())).project;
+  /* The approve button and every export download key off this. Leaving it unset
+     made both handlers silently return -- a reachable feature that looked dead. */
+  projectStatus.dataset.boqVersionId = currentProject.currentBoqVersionId || '';
   updateHeaderProject();
   renderProjectControls();
 }
@@ -1388,6 +1392,31 @@ async function renderReview(projectId) {
     approvalBanner.className = queue.counts.blocking > 0 ? 'approval-banner blocked' : 'approval-banner can-approve';
   }
   if (approveButton) approveButton.disabled = queue.counts.blocking > 0;
+
+  /* The export view must show the real state of the BOQ version, not a static
+     default that never changes. Without this the screen said "No BOQ version
+     ready" even for a measured, unblocked project. */
+  const versionId = document.querySelector('#project-status')?.dataset.boqVersionId;
+  const controls = document.querySelector('#export-controls');
+  const state = await (async () => {
+    if (!versionId) return { status: 'none', label: 'No BOQ version exists yet. Measure a drawing first.' };
+    const response = await fetch(`/api/boq-versions/${versionId}`);
+    if (!response.ok) return { status: 'none', label: 'No BOQ version exists yet. Measure a drawing first.' };
+    return (await response.json()).boqVersion;
+  })();
+  approvalState.dataset.versionId = versionId || '';
+  approvalState.dataset.status = state.status || 'none';
+  if (state.status === 'approved') {
+    approvalState.textContent = `Approved by ${state.approvedBy} — you can download the documents below.`;
+    if (controls) { controls.hidden = false; controls.dataset.versionId = versionId; }
+    if (approveButton) { approveButton.hidden = true; }
+  } else {
+    approvalState.textContent = queue.counts.blocking > 0
+      ? `BOQ version ${versionId || ''} is ready, but ${queue.counts.blocking} blocking exception${queue.counts.blocking === 1 ? '' : 's'} must be resolved first.`
+      : `BOQ version ${versionId || ''} is ready to approve.`;
+    if (controls) controls.hidden = true;
+    if (approveButton) approveButton.hidden = false;
+  }
 }
 
 if (approveButton) {
@@ -1397,7 +1426,13 @@ if (approveButton) {
     if (!projectId || !versionId) return;
     approveButton.disabled = true;
     const response = await fetch(`/api/boq-versions/${versionId}/approve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ approvedBy: 'operator' }) });
-    const body = await response.json();
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      approvalError.className = 'text-sm error mt-2';
+      approvalError.textContent = body.error || 'Approval failed.';
+      approveButton.disabled = false;
+      return;
+    }
     approvalError.textContent = response.ok ? `Approved: ruleset ${body.boqVersion.approvedRulesetVersion}, assumptions v${body.boqVersion.approvedAssumptionsVersion}` : body.error;
     if (response.ok) {
       approvalError.className = 'text-sm status-msg success mt-2';
@@ -1578,6 +1613,7 @@ async function openProject(projectId) {
   projectStatus.dataset.ready = 'true';
   projectStatus.dataset.revision = projectStatus.dataset.revision || '0';
   projectStatus.dataset.projectId = currentProject.id;
+  projectStatus.dataset.boqVersionId = currentProject.currentBoqVersionId || '';
   try { localStorage.setItem('boq.activeProject', currentProject.id); } catch { /* private mode */ }
   updateHeaderProject();
   renderProjectControls();
@@ -1609,7 +1645,7 @@ function promptForUnit(errorText) {
 function hideEmptySections() {
   const gated = [
     ['#view-review', () => document.querySelectorAll('#boq-lines tr').length > 0],
-    ['#view-exceptions', () => document.querySelectorAll('#queue-rows tr').length > 0],
+    ['#view-exceptions', () => document.querySelectorAll('#queue-cards .exception-group').length > 0],
     ['#view-workspace', () => (document.querySelector('#ws-line')?.options.length || 0) > 1],
     ['#view-rollup', () => document.querySelectorAll('#rollup-lines tr').length > 0],
     ['#view-raster', () => !document.querySelector('#raster-workflow')?.hidden]
