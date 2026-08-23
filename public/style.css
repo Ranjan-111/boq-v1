@@ -645,3 +645,11 @@ progress::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
   .content { padding: var(--space-4); }
   :root { --header-h: 48px; }
 }
+
+/* Nav items whose section has nothing to show yet (T6). */
+.nav-empty { opacity: 0.45; }
+.empty-placeholder { margin-top: 8px; }
+
+/* The `hidden` attribute must win over any display rule, or a section we asked
+   to hide (an empty project picker, a unit prompt not yet needed) still shows. */
+[hidden] { display: none !important; }

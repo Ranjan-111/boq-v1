@@ -24,7 +24,7 @@ async function openRasterPage(engineScript) {
   await page.waitForLoadState('networkidle');
   const uploadResponse = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith('/api/source-documents'));
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'raster-200x100.png'));
-  await page.getByRole('button', { name: 'Create processing run' }).click();
+  await page.getByRole('button', { name: 'Measure this drawing' }).click();
   const submission = await (await uploadResponse).json();
   await page.waitForFunction(() => document.querySelector('#ocr-workflow').hidden === false);
   return { page, submission };
@@ -94,7 +94,7 @@ test('operator can OCR a born-digital PDF page while native positioned text rema
   await page.goto(app.baseUrl); await page.waitForLoadState('networkidle');
   const uploadResponse = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith('/api/source-documents'));
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'vector-plan.pdf'));
-  await page.getByRole('button', { name: 'Create processing run' }).click();
+  await page.getByRole('button', { name: 'Measure this drawing' }).click();
   const submission = await (await uploadResponse).json();
   await page.waitForFunction(() => document.querySelector('#ocr-workflow').hidden === false && Boolean(document.querySelector('#raster-pdf-canvas').style.width));
   assert.match(await page.locator('#raster-workflow-title').textContent(), /PDF page preview/i);
@@ -121,7 +121,7 @@ test('hybrid PDF keeps its pages available to OCR while deterministic BOQ export
   await page.goto(app.baseUrl); await page.waitForLoadState('networkidle');
   const uploadResponse = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith('/api/source-documents'));
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'mixed-plan.pdf'));
-  await page.getByRole('button', { name: 'Create processing run' }).click();
+  await page.getByRole('button', { name: 'Measure this drawing' }).click();
   const submission = await (await uploadResponse).json();
   await page.waitForFunction(() => document.querySelector('#message').classList.contains('error') && document.querySelector('#ocr-workflow').hidden === false && Boolean(document.querySelector('#raster-pdf-canvas').style.width));
   assert.match(await page.locator('#message').textContent(), /mixed|hybrid/i);

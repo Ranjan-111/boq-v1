@@ -48,6 +48,14 @@ function createServer(application = createApplication()) {
       if (request.method === 'POST' && url.pathname === '/api/projects') {
         return sendJson(response, 201, { project: application.createProject(await readJson(request)) });
       }
+      if (request.method === 'GET' && url.pathname === '/api/projects') {
+        return sendJson(response, 200, { projects: application.getProjects(), limits: { uploadBytes: LIMITS.uploadBytes } });
+      }
+      const projectRenameMatch = /^\/api\/projects\/(project_\d+)\/name$/.exec(url.pathname);
+      if (request.method === 'POST' && projectRenameMatch) {
+        const body = await readJson(request);
+        return sendJson(response, 200, { project: application.renameProject(projectRenameMatch[1], body.name) });
+      }
       const projectRollupMatch = /^\/api\/projects\/(project_\d+)\/rollup$/.exec(url.pathname);
       if (request.method === 'GET' && projectRollupMatch) return sendJson(response, 200, { rollup: application.getProjectRollup(projectRollupMatch[1], { boqVersionId: url.searchParams.get('boqVersionId') || undefined }) });
       const projectMatch = /^\/api\/projects\/(project_\d+)$/.exec(url.pathname);

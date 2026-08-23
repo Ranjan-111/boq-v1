@@ -77,11 +77,17 @@
             <div class="card">
               <div class="card-header"><h3>Create project</h3></div>
               <form id="project-form" class="form-row">
-                <label>Project name
-                  <input id="project-name" name="name" placeholder="Project name" required>
+                <label>Project name <span class="text-secondary text-sm">(optional — you can name it later)</span>
+                  <input id="project-name" name="name" placeholder="Project name">
                 </label>
-                <button type="submit">Create project</button>
+                <button type="submit">Start working</button>
               </form>
+              <div id="project-resume" class="form-row mt-4" hidden>
+                <label for="project-picker">Or continue an earlier project
+                  <select id="project-picker"></select>
+                </label>
+                <button id="project-resume-button" type="button">Open</button>
+              </div>
               <p id="project-status" role="status" class="mt-4 text-sm"></p>
             </div>
 
@@ -137,19 +143,21 @@
                 <div class="upload-area" id="upload-dropzone">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   <p>Drop your drawing here or <strong>click to browse</strong></p>
-                  <p class="upload-formats">DXF · PDF · PNG · JPEG — up to 50 MB</p>
+                  <p class="upload-formats">DXF · PDF · PNG · JPEG<span id="upload-limit"></span></p>
                   <input id="drawing" name="drawing" type="file" accept=".dxf,.pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf" required style="display:none">
                 </div>
-                <div class="form-row mt-4">
-                  <label for="fallback-unit">Fallback unit (only when the DXF unit is missing)
+                <div id="unit-prompt" class="form-row mt-4" hidden>
+                  <label for="fallback-unit"><span id="unit-prompt-text">This drawing does not state its units. Which unit was it drawn in?</span>
                     <select id="fallback-unit" name="fallbackUnit">
-                      <option value="">No fallback — require source evidence</option>
+                      <option value="">Select the drawing unit…</option>
                       <option value="millimetres">Millimetres</option>
                       <option value="centimetres">Centimetres</option>
                       <option value="metres">Metres</option>
                     </select>
                   </label>
-                  <button type="submit">Create processing run</button>
+                </div>
+                <div class="form-row mt-4">
+                  <button type="submit">Measure this drawing</button>
                 </div>
               </form>
               <p id="message" role="status" class="mt-4 text-sm"></p>

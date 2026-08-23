@@ -170,9 +170,14 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     }
   }
 
-  function createProject({ name }) {
-    if (!String(name || '').trim()) throw new InputError('A project name is required.');
-    const project = { id: `project_${String(++projectSequence).padStart(4, '0')}`, name: String(name).trim(), version: 1, buildingIds: [], sourceDocumentIds: [], boqVersionIds: [], currentBoqVersionId: null,
+  function createProject({ name } = {}) {
+    /* A name is not required to start. Naming a project before you have even
+       looked at a drawing is a gate with no purpose, so an unnamed project gets
+       a readable placeholder and is flagged so the UI can ask for a real name
+       once the work is worth keeping. */
+    const supplied = String(name || '').trim();
+    const id = `project_${String(++projectSequence).padStart(4, '0')}`;
+    const project = { id, name: supplied || `Untitled project ${id.replace('project_', '')}`, unnamed: !supplied, createdAt: new Date().toISOString(), version: 1, buildingIds: [], sourceDocumentIds: [], boqVersionIds: [], currentBoqVersionId: null,
       /* Assumptions are versioned rather than edited: a quantity measured under
          version 1 must stay reproducible after someone changes the wall height. */
       assumptions: { version: 1, values: { ...DEFAULT_ASSUMPTIONS }, history: [{ version: 1, at: new Date().toISOString(), reason: 'Defaults applied at project creation.', updatedBy: 'system', changed: {} }] },
@@ -1623,6 +1628,8 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return {
       id: project.id,
       name: project.name,
+      unnamed: project.unnamed === true,
+      createdAt: project.createdAt || null,
       version: project.version,
       boqVersions: project.boqVersionIds.map((id) => ({ ...boqVersions.get(id) })),
       currentBoqVersionId: project.currentBoqVersionId,
@@ -1630,6 +1637,44 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
       buildings: project.buildingIds.map((buildingId) => presentBuilding(buildings.get(buildingId), requestedBoqVersionId, context)),
       rollup: rollupForSourceIds(ids, 'project', project.id, requestedBoqVersionId, context)
     };
+  }
+
+  /* A summary list, so a reload can offer the workspace back rather than
+     stranding it. Deliberately not the full tree: a picker needs identity and
+     enough context to choose, not every rollup. */
+  function getProjects() {
+    return [...projects.values()]
+      .map((project) => {
+        const buildingIds = project.buildingIds || [];
+        const storeyIds = buildingIds.flatMap((id) => buildings.get(id)?.storeyIds || []);
+        const documentIds = new Set([
+          ...(project.sourceDocumentIds || []),
+          ...buildingIds.flatMap((id) => buildings.get(id)?.sourceDocumentIds || []),
+          ...storeyIds.flatMap((id) => storeys.get(id)?.sourceDocumentIds || [])
+        ]);
+        return {
+          id: project.id,
+          name: project.name,
+          unnamed: project.unnamed === true,
+          createdAt: project.createdAt || null,
+          buildingCount: buildingIds.length,
+          storeyCount: storeyIds.length,
+          sourceDocumentCount: documentIds.size,
+          currentBoqVersionId: project.currentBoqVersionId || null
+        };
+      })
+      .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')) || right.id.localeCompare(left.id));
+  }
+
+  function renameProject(projectId, name) {
+    const project = requireProject(projectId);
+    const next = String(name || '').trim();
+    if (!next) throw new InputError('A project name cannot be empty. Leave it unnamed instead.');
+    project.name = next;
+    project.unnamed = false;
+    persistProject(project);
+    repository.appendAudit({ kind: 'project_renamed', subjectId: project.id, payload: { name: next } });
+    return presentProject(project);
   }
 
   function getProject(projectId, { boqVersionId } = {}) {
@@ -1646,7 +1691,7 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
     return assignSourceDocument(sourceDocumentId, { projectId: storey.projectId, buildingId: storey.buildingId, storeyId, ...(typicalMultiplier === undefined && typicalStoreyMultiplier === undefined ? {} : { typicalMultiplier: typicalStoreyMultiplier ?? typicalMultiplier }) });
   }
 
-  return { getLineEvidence, getObjectLines, getQueueStep, publishCatalogue, getCatalogues: cataloguesFor, exportBoq, publishRateBook, getPricedBoq, getRateBooks: rateBooksFor, recordVendorOffer, getVendorOffers, selectVendorOffer, rankExceptions, getExceptionQueue, resolveExceptionGroup, getResolutions, recordQuantityAffectingResolution, proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
+  return { getProjects, renameProject, getLineEvidence, getObjectLines, getQueueStep, publishCatalogue, getCatalogues: cataloguesFor, exportBoq, publishRateBook, getPricedBoq, getRateBooks: rateBooksFor, recordVendorOffer, getVendorOffers, selectVendorOffer, rankExceptions, getExceptionQueue, resolveExceptionGroup, getResolutions, recordQuantityAffectingResolution, proposeRasterRegions, proposeResidualLabels, confirmResidual, visionAvailable: () => vision.available, createProject, createBuilding, createStorey, createBoqVersion, getProjectAssumptions, updateProjectAssumptions, approveBoqVersion, getBoqVersion, createStudioMapping, approveStudioMapping, retireStudioMapping, getStudioMappings, createSourceDocument, assignSourceDocument, assignSourceToStorey, startProcessing, confirmSourceSetup, calibrateRasterPage, createRasterRegion, updateRasterRegion, deleteRasterRegion, confirmRasterRegion, getRasterImage, getRun, getClassifications, submitOcrResults, addOcrResults: submitOcrResults, recordOcrResults: submitOcrResults, getOcrResults, getOcrStatus, getProject, getBuilding, getStorey, getProjectRollup: (projectId, options) => getProject(projectId, options).rollup, reprocess };
 }
 
 function classifyDocument(run, sourceDocument, entities) {

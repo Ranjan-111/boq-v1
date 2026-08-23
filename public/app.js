@@ -350,7 +350,7 @@ projectForm.addEventListener('submit', async (event) => {
   projectStatus.textContent = 'Creating project…';
   projectStatus.className = 'mt-4 text-sm status-msg info';
   try {
-    const response = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: document.querySelector('#project-name').value }) });
+    const response = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: document.querySelector('#project-name').value || undefined }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Project creation failed.');
     currentProject = result.project;
@@ -360,6 +360,7 @@ projectForm.addEventListener('submit', async (event) => {
     projectStatus.dataset.ready = 'true';
     projectStatus.dataset.revision = '0';
     projectStatus.dataset.projectId = currentProject.id;
+    try { localStorage.setItem('boq.activeProject', currentProject.id); } catch { /* private mode */ }
     updateHeaderProject();
     renderProjectControls();
     toast(`Project "${currentProject.name}" created`, 'success');
@@ -394,6 +395,7 @@ buildingForm.addEventListener('submit', async (event) => {
     projectStatus.className = 'mt-4 text-sm status-msg success';
     projectStatus.dataset.ready = 'true';
     projectStatus.dataset.revision = String(Number(projectStatus.dataset.revision || 0) + 1);
+    autoSelectLatest();
     toast('Building added', 'success');
   } catch (error) { projectStatus.textContent = `Building creation failed: ${error.message}`; toast(error.message, 'error'); }
   finally { buildingForm.querySelector('button').disabled = false; }
@@ -414,6 +416,7 @@ storeyForm.addEventListener('submit', async (event) => {
     projectStatus.className = 'mt-4 text-sm status-msg success';
     projectStatus.dataset.ready = 'true';
     projectStatus.dataset.revision = String(Number(projectStatus.dataset.revision || 0) + 1);
+    autoSelectLatest();
     toast('Storey added', 'success');
   }
   catch (error) { projectStatus.textContent = `Storey creation failed: ${error.message}`; toast(error.message, 'error'); }
@@ -633,7 +636,14 @@ async function pollRun() {
     if (run.sourceDocument?.format === 'pdf' && run.pages?.length) renderPdfOcrWorkflow(run);
     message.textContent = run.error;
     message.className = 'mt-4 text-sm error';
-    toast('Processing failed', 'error');
+    /* T3: if the only thing missing is the drawing unit, ask for it here --
+       at the moment it actually matters -- instead of demanding it upfront. */
+    if (promptForUnit(run.error)) {
+      message.textContent = 'This drawing does not state its units. Choose the unit below and measure again.';
+      toast('Choose the drawing unit to continue', 'error');
+    } else {
+      toast('Processing failed', 'error');
+    }
     return;
   }
   setTimeout(pollRun, 50);
@@ -1513,5 +1523,128 @@ document.querySelectorAll('[data-export]').forEach((button) => {
     document.body.append(anchor); anchor.click(); anchor.remove();
     URL.revokeObjectURL(url);
     toast(`Downloaded ${name}`, 'success');
+  });
+});
+
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  Operator flow: resume, auto-select, unit prompt, empty sections           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/* T13: creating a building or storey then being told to select it is friction
+   with no purpose. Select whatever was just added. */
+function autoSelectLatest() {
+  const building = document.querySelector('#building-select');
+  if (building && !building.value && building.options.length > 1) building.selectedIndex = building.options.length - 1;
+  const storey = document.querySelector('#storey-select');
+  if (storey && !storey.value && storey.options.length > 1) storey.selectedIndex = storey.options.length - 1;
+}
+
+/* T5: a reload must not strand an existing project. Offer the list, and reopen
+   the last one worked on. */
+async function loadProjectList() {
+  const picker = document.querySelector('#project-picker');
+  const resume = document.querySelector('#project-resume');
+  if (!picker || !resume) return null;
+  let payload;
+  try { payload = await (await fetch('/api/projects')).json(); } catch { return null; }
+
+  /* T12: state the limit the server actually enforces, not a number we invented. */
+  const limitLabel = document.querySelector('#upload-limit');
+  if (limitLabel && payload.limits?.uploadBytes) {
+    limitLabel.textContent = ` — up to ${Math.round(payload.limits.uploadBytes / 1024 / 1024)} MB`;
+  }
+
+  const projects = payload.projects || [];
+  resume.hidden = projects.length === 0;
+  picker.replaceChildren(...projects.map((project) => {
+    const option = document.createElement('option');
+    option.value = project.id;
+    const bits = [];
+    if (project.sourceDocumentCount) bits.push(`${project.sourceDocumentCount} drawing${project.sourceDocumentCount === 1 ? '' : 's'}`);
+    option.textContent = `${project.name}${bits.length ? ` — ${bits.join(', ')}` : ' — empty'}`;
+    return option;
+  }));
+  return projects;
+}
+
+async function openProject(projectId) {
+  const response = await fetch(`/api/projects/${projectId}`);
+  if (!response.ok) return false;
+  currentProject = (await response.json()).project;
+  projectControls.hidden = false;
+  projectStatus.textContent = `${currentProject.name} (${currentProject.id}) ready.`;
+  projectStatus.className = 'mt-4 text-sm status-msg success';
+  projectStatus.dataset.ready = 'true';
+  projectStatus.dataset.revision = projectStatus.dataset.revision || '0';
+  projectStatus.dataset.projectId = currentProject.id;
+  try { localStorage.setItem('boq.activeProject', currentProject.id); } catch { /* private mode */ }
+  updateHeaderProject();
+  renderProjectControls();
+  await renderReview(currentProject.id).catch(() => {});
+  return true;
+}
+
+document.querySelector('#project-resume-button')?.addEventListener('click', async () => {
+  const id = document.querySelector('#project-picker')?.value;
+  if (!id) return;
+  if (await openProject(id)) toast('Project reopened', 'success');
+});
+
+/* T3: the fallback unit answers a question the drawing has not yet raised. Ask
+   only once unit resolution has actually failed, and re-run with the answer. */
+function promptForUnit(errorText) {
+  const prompt = document.querySelector('#unit-prompt');
+  if (!prompt) return false;
+  if (!/drawing unit|\$INSUNITS/i.test(String(errorText || ''))) return false;
+  prompt.hidden = false;
+  const text = document.querySelector('#unit-prompt-text');
+  if (text) text.textContent = 'This drawing does not state its units, so nothing can be measured from it yet. Which unit was it drawn in?';
+  document.querySelector('#fallback-unit')?.focus();
+  return true;
+}
+
+/* T6: a heading with nothing under it reads as broken. Hide the work sections
+   until they have something to show. */
+function hideEmptySections() {
+  const gated = [
+    ['#view-review', () => document.querySelectorAll('#boq-lines tr').length > 0],
+    ['#view-exceptions', () => document.querySelectorAll('#queue-rows tr').length > 0],
+    ['#view-workspace', () => (document.querySelector('#ws-line')?.options.length || 0) > 1],
+    ['#view-rollup', () => document.querySelectorAll('#rollup-lines tr').length > 0],
+    ['#view-raster', () => !document.querySelector('#raster-workflow')?.hidden]
+  ];
+  for (const [selector, hasContent] of gated) {
+    const view = document.querySelector(selector);
+    if (!view) continue;
+    const ready = hasContent();
+    const navItem = document.querySelector(`[data-view="${view.dataset.view}"]`);
+    if (navItem) {
+      navItem.classList.toggle('nav-empty', !ready);
+      navItem.title = ready ? '' : 'Nothing here yet — upload a drawing first';
+    }
+    /* Only the placeholder body is hidden; the view itself stays reachable so a
+       curious operator is told why it is empty rather than finding it missing. */
+    const placeholder = view.querySelector('.empty-placeholder');
+    if (!ready && !placeholder && view.querySelector('.view-header')) {
+      const note = document.createElement('p');
+      note.className = 'empty-placeholder text-sm text-secondary';
+      note.textContent = 'Nothing to show yet. Upload and measure a drawing first.';
+      view.append(note);
+    } else if (ready && placeholder) {
+      placeholder.remove();
+    }
+  }
+}
+
+const observer = new MutationObserver(() => hideEmptySections());
+document.addEventListener('DOMContentLoaded', () => {
+  hideEmptySections();
+  observer.observe(document.querySelector('#main-content') || document.body, { childList: true, subtree: true });
+  loadProjectList().then(async (projects) => {
+    if (!projects || !projects.length) return;
+    let last = null;
+    try { last = localStorage.getItem('boq.activeProject'); } catch { /* private mode */ }
+    if (last && projects.some((p) => p.id === last)) await openProject(last);
   });
 });

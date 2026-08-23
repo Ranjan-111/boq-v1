@@ -18,22 +18,22 @@ Ordering within a status is by value, not by effort.
 |---|---|---|---|
 | ~~T1~~ | **DONE — measure walls drawn as LWPOLYLINE and LINE** | Rules only measure walls from `HATCH`. Real plans draw walls as closed polylines or line pairs, so a drawing ingests and the BOQ comes back nearly empty. `Gplus2` measures 3 of 9 lines for exactly this reason. Needs a centre-line-plus-thickness rule using the existing `wallThickness` assumption. | — |
 | ~~T2~~ | **DONE — floor inferred from wall boundary (flagged) + broader floor layers** | Rooms are only found as `LWPOLYLINE` on a room-named layer. Most drawings have no room layer at all; the room is implied by the walls enclosing it. Without this, `floor_area` is 0 on most real files. | T1 |
-| T3 | **Ask for the fallback unit *when* units are missing, not upfront** | The backend already accepts `fallbackUnit` and completes correctly — verified. The frontend shows the selector from the start, so it reads as a required field nobody understands, and the failure that needs it looks like a dead end. Pure UX wiring. | — |
+| ~~T3~~ | **DONE** — Ask for the fallback unit *when* units are missing, not upfront | The backend already accepts `fallbackUnit` and completes correctly — verified. The frontend shows the selector from the start, so it reads as a required field nobody understands, and the failure that needs it looks like a dead end. Pure UX wiring. | — |
 | ~~T4~~ | **DONE — export over HTTP (CSV/XLSX/PDF + sidecar), buttons in UI** | `exportBoq` is built, tested and reproducible, but has no server route. The "Approve & Export" nav item has nothing behind it. Q9 is closed in the engine and unreachable in the product. | — |
-| T5 | **`GET /api/projects` + restore the workspace on reload** | No list endpoint exists and the frontend keeps no project id, so refreshing the page strands an existing project permanently. On a demo this reads as data loss. | — |
+| ~~T5~~ | **DONE** — `GET /api/projects` + restore the workspace on reload | No list endpoint exists and the frontend keeps no project id, so refreshing the page strands an existing project permanently. On a demo this reads as data loss. | — |
 
 ## NEXT
 
 | # | Ticket | Why it matters | Depends on |
 |---|---|---|---|
-| T6 | **Progressive disclosure: hide sections until they have content** | Every section renders as an empty heading before anything is uploaded. Makes a working system look broken. | — |
-| T7 | **Landing → upload → work, in that order** | Project name is demanded before anything can happen. Make it optional: let someone upload and look, and name the project only if they are keeping it. | T6 |
+| ~~T6~~ | **DONE** — Progressive disclosure: hide sections until they have content | Every section renders as an empty heading before anything is uploaded. Makes a working system look broken. | — |
+| ~~T7~~ | **DONE** — Landing → upload → work, in that order | Project name is demanded before anything can happen. Make it optional: let someone upload and look, and name the project only if they are keeping it. | T6 |
 | T8 | **Draw the OCR crop on the image** | The crop is specified by typing x/y/width/height. Unusable in practice — 40 attempts, 0 successes — and a mis-typed crop returns "Malformed OCR polygon or empty text" with no guidance. | — |
 | T9 | **OCR-first raster flow** | On upload, run OCR before asking anything: read the scale bar, the units and the dimension strings, propose regions, then show the human what was found for confirmation. Today the operator is asked for two points and a distance even when the sheet states its scale. | T8 |
 | ~~T10~~ | **DONE — deterministic PDF export** | The artefact is already format-agnostic, so this is a new encoder rather than a new pipeline. A client-facing BOQ is expected as PDF. | T4 |
-| T11 | **Rename "Create processing run"** | Internal vocabulary on the primary button. | — |
-| T12 | **Reconcile the upload limit** | UI promises 50 MB, backend enforces 10 MB. | — |
-| T13 | **Auto-select a newly created building** | Creating a building then failing with "Select a building before adding a storey" is needless friction. | — |
+| ~~T11~~ | **DONE** — Rename "Create processing run" | Internal vocabulary on the primary button. | — |
+| ~~T12~~ | **DONE** — Reconcile the upload limit | UI promises 50 MB, backend enforces 10 MB. | — |
+| ~~T13~~ | **DONE** — Auto-select a newly created building | Creating a building then failing with "Select a building before adding a storey" is needless friction. | — |
 
 ## LATER
 
@@ -91,6 +91,11 @@ Ordering within a status is by value, not by effort.
 | D18 | T4/T10 — HTTP export (CSV/XLSX/PDF) + provenance sidecar + UI download | residual_test now exports end to end |
 | D19 | Default catalogue so approve/export is reachable without authoring one | residual_test 9 blocking → 0, approves |
 | D20 | Graceful external references (xref INSERT skipped + flagged, not fatal) | Floorplan (1).dxf ingests, missing furniture library flagged |
+| D21 | T3 — unit asked only when resolution fails, at the moment it matters | verified in-browser |
+| D22 | T5 — `GET /api/projects`, picker, and auto-restore on reload | refresh no longer strands a project |
+| D23 | T6 — empty sections dimmed in nav and labelled, not blank headings | |
+| D24 | T7 — project name optional, "Start working" | upload is no longer gated on naming |
+| D25 | T11/T12/T13 — "Measure this drawing", real 10 MB limit, auto-select new building/storey | |
 
 ---
 
