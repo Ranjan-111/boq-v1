@@ -45,6 +45,7 @@ function measureDxf(sourceDocument, units, parsedDocument, {
   const toMetres = units.toMetres;
   const walls = [];
   const rooms = [];
+  const wallBoundaries = [];
   const byCategory = { door: [], window: [], furniture: [] };
   for (const entity of document.entities) {
     const category = layerCategory(entity.layer) || blockCategory(entity.block);
@@ -59,7 +60,19 @@ function measureDxf(sourceDocument, units, parsedDocument, {
       else if (entity.type === 'LINE' && entity.points.length === 2) { entity.wallGeometry = 'centre-line'; walls.push(entity); }
     }
     if (entity.type === 'LWPOLYLINE' && category === 'room' && entity.points.length >= 3) rooms.push(entity);
+    /* A closed wall boundary encloses the floor. Kept as a fallback only. */
+    if (category === 'wall' && entity.type === 'LWPOLYLINE' && entity.closed && entity.points.length >= 3) wallBoundaries.push(entity);
     if (entity.type === 'INSERT' && category && byCategory[category]) byCategory[category].push(entity);
+  }
+  /* When a drawing tags no room and no floor, the gross floor is the area inside
+     its outer wall boundary. The largest closed wall polygon is that boundary;
+     inner ones are cores and partitions. This is an inference, so it is flagged
+     LOW confidence and raised for review -- never silently trusted -- and it is
+     used only when there is no explicit room to measure. */
+  let inferredFloor = null;
+  if (rooms.length === 0 && wallBoundaries.length > 0) {
+    inferredFloor = wallBoundaries.reduce((largest, entity) =>
+      polygonArea(entity.points) > polygonArea(largest.points) ? entity : largest, wallBoundaries[0]);
   }
 
   const sourceObjects = new Map();
@@ -93,9 +106,12 @@ function measureDxf(sourceDocument, units, parsedDocument, {
   };
   // openings are sized from resolved block geometry, so register them up front
   for (const entity of [...walls, ...rooms, ...byCategory.door, ...byCategory.window, ...byCategory.furniture]) register(entity);
+  if (inferredFloor) register(inferredFloor);
 
   const context = {
     walls, rooms, doors: byCategory.door, windows: byCategory.window, furniture: byCategory.furniture,
+    inferredFloor,
+    floorBasis: rooms.length ? 'room-polygon' : inferredFloor ? 'wall-boundary' : null,
     toMetres, typicalMultiplier, assumptions: resolvedAssumptions, settings: ruleset.settings,
     objectFor: (entity) => objectByEntity.get(entity),
     areaOf: (entity) => polygonArea(entity.points) * toMetres * toMetres * typicalMultiplier,
@@ -127,7 +143,8 @@ function measureDxf(sourceDocument, units, parsedDocument, {
       ruleInputs: { assumptions: resolvedAssumptions, settings: ruleset.settings }
     });
     });
-    return line(rule.measurement, rule.label, quantity(signedSum(contributions)), rule.unit, rule.evidence, contributions);
+    const meta = typeof rule.lineMeta === 'function' ? rule.lineMeta(context) : null;
+    return line(rule.measurement, rule.label, quantity(signedSum(contributions)), rule.unit, rule.evidence, contributions, meta);
   });
 
   /* Geometry no rule could use is reported rather than dropped. A drawing whose
@@ -419,7 +436,10 @@ function readEntity(type, groups, fallbackHandle = '') {
 function layerCategory(layer = '') {
   const name = layer.toUpperCase();
   if (name.includes('WALL')) return 'wall';
-  if (name.includes('ROOM')) return 'room';
+  /* Rooms and floors are the same measurement intent -- a finished floor area.
+     Studios name the layer many ways, so recognise the common ones rather than
+     only the literal word ROOM. */
+  if (['ROOM', 'FLOOR', 'FLOR', 'SLAB', 'SPACE', 'CARPET'].some((word) => name.includes(word))) return 'room';
   if (name.includes('DOOR')) return 'door';
   if (name.includes('GLAZ') || name.includes('WIN')) return 'window';
   if (name.includes('FURN')) return 'furniture';
@@ -436,7 +456,7 @@ function polygonArea(points) { return Math.abs(points.reduce((area, point, index
 function pathLength(points) { let total = 0; for (let i = 0; i + 1 < points.length; i += 1) total += Math.hypot(points[i + 1][0] - points[i][0], points[i + 1][1] - points[i][1]); return total; }
 function polygonPerimeter(points) { return points.reduce((perimeter, point, index) => { const next = points[(index + 1) % points.length]; return perimeter + Math.hypot(next[0] - point[0], next[1] - point[1]); }, 0); }
 function quantity(value) { return Number(value.toFixed(6)); }
-function line(measurement, label, value, unit, evidence, contributions) {
+function line(measurement, label, value, unit, evidence, contributions, meta = null) {
   /* Deductions can, with the wrong assumptions, subtract more than the geometry
      holds. A negative area is not a small quantity -- it is a contradiction
      between the rules and the drawing, and letting it through would quietly
@@ -447,17 +467,20 @@ function line(measurement, label, value, unit, evidence, contributions) {
     : null;
   const quantity = impossible ? 0 : value;
   const plausibility = impossible ? null : checkPlausibility(measurement, contributions);
+  const resolvedEvidence = meta?.evidence || evidence;
+  const level = plausibility ? 'LOW' : meta?.confidence || (resolvedEvidence.length === 2 ? 'HIGH' : 'MEDIUM');
   return {
     measurement, label, quantity, unit,
     /* A magnitude we cannot believe is not presented as a confident number. */
-    confidence: { level: plausibility ? 'LOW' : evidence.length === 2 ? 'HIGH' : 'MEDIUM', evidence },
+    confidence: { level, evidence: resolvedEvidence },
     measurementStatus: impossible ? 'not_measurable' : measurementStatusFor(quantity, contributions),
     provenance: buildProvenance({
       contributions,
       quantity,
       measurementStatus: impossible ? 'not_measurable' : undefined,
       ...(impossible ? { impossible } : {}),
-      ...(plausibility ? { plausibility } : {})
+      ...(plausibility ? { plausibility } : {}),
+      ...(meta?.floorBasis ? { floorBasis: meta.floorBasis } : {})
     })
   };
 }

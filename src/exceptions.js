@@ -25,6 +25,9 @@ const SEVERITIES = Object.freeze({
      cannot change a quantity. */
   unmeasured_geometry: { severity: 'blocking', blocks: ['approval', 'export'] },
   low_confidence: { severity: 'advisory', blocks: ['review'] },
+  /* A floor read off the wall boundary because no room was tagged. It is a real
+     number but an inferred one, so it is surfaced for confirmation. */
+  inferred_floor: { severity: 'blocking', blocks: ['approval'] },
   /* Raised by the pricing layer rather than by a run: a rate outside its
      validity window must never quietly price a BOQ. */
   stale_rate: { severity: 'blocking', blocks: ['approval', 'export'] },
@@ -65,6 +68,16 @@ function exceptionsForRun(run) {
 
   for (const line of run.boq?.lines || []) {
     const impact = { quantity: line.quantity ?? null, unit: line.unit ?? null };
+    if (line.provenance?.floorBasis === 'wall-boundary') {
+      out.push(makeException({ ...base, type: 'inferred_floor', anchor: line.measurement, measurement: line.measurement,
+        sourceObjectId: firstObject(line), groupKey: `inferred_floor:${line.measurement}`, impact,
+        title: `${line.label || line.measurement} was inferred from the walls`,
+        raisedBecause: 'No room or floor polygon was tagged, so the floor area was taken as the gross area inside the outer wall boundary. Confirm it, or draw the room outline for an exact figure.',
+        resolutionOptions: [
+          { action: 'confirm_inferred_floor', label: 'Accept the inferred gross floor area' },
+          { action: 'draw_room', label: 'Draw the room outline for an exact floor area' }
+        ] }));
+    }
     if (line.provenance?.impossible) {
       out.push(makeException({ ...base, type: 'impossible_quantity', anchor: line.measurement, measurement: line.measurement,
         sourceObjectId: firstObject(line), groupKey: `impossible_quantity:${line.measurement}`, impact,

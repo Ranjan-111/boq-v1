@@ -16,8 +16,8 @@ Ordering within a status is by value, not by effort.
 
 | # | Ticket | Why it matters | Depends on |
 |---|---|---|---|
-| T1 | **Measure walls drawn as LWPOLYLINE and LINE** | Rules only measure walls from `HATCH`. Real plans draw walls as closed polylines or line pairs, so a drawing ingests and the BOQ comes back nearly empty. `Gplus2` measures 3 of 9 lines for exactly this reason. Needs a centre-line-plus-thickness rule using the existing `wallThickness` assumption. | — |
-| T2 | **Rooms from wall boundaries, not just tagged polylines** | Rooms are only found as `LWPOLYLINE` on a room-named layer. Most drawings have no room layer at all; the room is implied by the walls enclosing it. Without this, `floor_area` is 0 on most real files. | T1 |
+| ~~T1~~ | **DONE — measure walls drawn as LWPOLYLINE and LINE** | Rules only measure walls from `HATCH`. Real plans draw walls as closed polylines or line pairs, so a drawing ingests and the BOQ comes back nearly empty. `Gplus2` measures 3 of 9 lines for exactly this reason. Needs a centre-line-plus-thickness rule using the existing `wallThickness` assumption. | — |
+| ~~T2~~ | **DONE — floor inferred from wall boundary (flagged) + broader floor layers** | Rooms are only found as `LWPOLYLINE` on a room-named layer. Most drawings have no room layer at all; the room is implied by the walls enclosing it. Without this, `floor_area` is 0 on most real files. | T1 |
 | T3 | **Ask for the fallback unit *when* units are missing, not upfront** | The backend already accepts `fallbackUnit` and completes correctly — verified. The frontend shows the selector from the start, so it reads as a required field nobody understands, and the failure that needs it looks like a dead end. Pure UX wiring. | — |
 | T4 | **Expose export over HTTP** | `exportBoq` is built, tested and reproducible, but has no server route. The "Approve & Export" nav item has nothing behind it. Q9 is closed in the engine and unreachable in the product. | — |
 | T5 | **`GET /api/projects` + restore the workspace on reload** | No list endpoint exists and the frontend keeps no project id, so refreshing the page strands an existing project permanently. On a demo this reads as data loss. | — |
@@ -86,6 +86,8 @@ Ordering within a status is by value, not by effort.
 | D13 | Ingest real DXF instead of refusing entity by entity | unsupported ≠ malformed; 67/68 AutoCAD corpus parses |
 | D14 | Stop discarding LINE entities silently | validated then thrown away; walls-as-lines measured nothing |
 | D15 | Vercel serverless entry point | `api/index.js`; the deployment boots |
+| D16 | T1 — walls from LINE / LWPOLYLINE | centre-line length; HATCH byte-identical; Gplus2 wall_plan 0 → 64.584 m² |
+| D17 | T2 — floor from wall boundary when no room, flagged | Gplus2 floor 0 → 120 m² at LOW confidence + review exception |
 
 ---
 

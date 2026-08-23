@@ -101,7 +101,18 @@ const RULES = Object.freeze({
   },
   'dxf-floor-area-v1': {
     id: 'dxf-floor-area-v1', measurement: 'floor_area', label: 'Floor finish area', unit: 'm²', evidence: ['layer', 'geometry'],
-    compute: (context) => context.rooms.map((entity) => ({ entity, sign: 'add', quantity: context.areaOf(entity) }))
+    compute: (context) => {
+      if (context.rooms.length) return context.rooms.map((entity) => ({ entity, sign: 'add', quantity: context.areaOf(entity) }));
+      /* No tagged room: fall back to the gross area inside the outer wall
+         boundary. Flagged as an inference by lineMeta below. */
+      if (context.inferredFloor) return [{ entity: context.inferredFloor, sign: 'add', quantity: context.areaOf(context.inferredFloor) }];
+      return [];
+    },
+    /* A floor read off the walls is not a measured room: LOW confidence, and it
+       records its basis so the workspace and the export can show it was inferred. */
+    lineMeta: (context) => context.floorBasis === 'wall-boundary'
+      ? { evidence: ['inferred-from-walls'], floorBasis: 'wall-boundary', confidence: 'LOW' }
+      : { floorBasis: context.floorBasis || 'room-polygon' }
   },
   'dxf-skirting-v1': {
     id: 'dxf-skirting-v1', measurement: 'skirting', label: 'Skirting length', unit: 'm', evidence: ['layer', 'geometry'],
