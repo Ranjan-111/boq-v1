@@ -26,6 +26,7 @@ Ordering within a status is by value, not by effort.
 
 | # | Ticket | Why it matters | Depends on |
 |---|---|---|---|
+| ~~F1–F9~~ | **DONE — frontend rebuilt** | The interface had no state model: the same fact lived in a `dataset` attribute, a module variable, `localStorage` and DOM text, and every reported bug was two of them disagreeing. The sidebar did not navigate — `showView` only scrolled — so every section rendered at once. Rebuilt around one store, one API client, and a real router. See `FRONTEND-REBUILD.md`. | — |
 | ~~T6~~ | **DONE** — Progressive disclosure: hide sections until they have content | Every section renders as an empty heading before anything is uploaded. Makes a working system look broken. | — |
 | ~~T7~~ | **DONE** — Landing → upload → work, in that order | Project name is demanded before anything can happen. Make it optional: let someone upload and look, and name the project only if they are keeping it. | T6 |
 | T8 | **Draw the OCR crop on the image** | The crop is specified by typing x/y/width/height. Unusable in practice — 40 attempts, 0 successes — and a mis-typed crop returns "Malformed OCR polygon or empty text" with no guidance. | — |
@@ -71,6 +72,12 @@ Ordering within a status is by value, not by effort.
 
 | # | Ticket | Shipped |
 |---|---|---|
+| D26 | Frontend rebuild: single store, one API client, real router (F1–F5) | `public/js/{store,api,router,render,app}.mjs` |
+| D27 | Raster/OCR ported behind the new state boundary, behaviour unchanged (F6) | `public/js/raster.mjs` |
+| D28 | Frontend state and API-client tests — a layer that could not be tested before (F7) | `test/frontend-store.test.js`, `test/frontend-api.test.js` |
+| D29 | Browser tests moved to the real navigation contract (F8) | `test-support/operator-page.js`, `test/operator-navigation.test.js` |
+| D30 | Build-freshness guard: a stale server announces itself (F9) | `GET /api/build`, `#build-stale` |
+| D31 | Reopening a project restores its run, so the graded BOQ comes back | `restoreRun()` in `public/js/app.mjs` |
 | D1 | R2 unified provenance (SourceObject / Contribution) | `src/provenance.js` |
 | D2 | Block geometry for INSERT references | degenerate bounds 8/15 → 0 |
 | D3 | R1 SQLite persistence behind a repository | 4-query rollup, append-only audit |

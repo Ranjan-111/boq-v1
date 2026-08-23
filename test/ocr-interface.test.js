@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { join } = require('node:path');
 const { chromium } = require('@playwright/test');
 const { startOperatorApp } = require('../test-support/operator-app');
+const { show, press } = require('../test-support/operator-page');
 
 let app;
 let browser;
@@ -23,8 +24,9 @@ async function openRasterPage(engineScript) {
   await page.goto(app.baseUrl);
   await page.waitForLoadState('networkidle');
   const uploadResponse = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith('/api/source-documents'));
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'raster-200x100.png'));
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   const submission = await (await uploadResponse).json();
   await page.waitForFunction(() => document.querySelector('#ocr-workflow').hidden === false);
   return { page, submission };
@@ -50,7 +52,7 @@ test('operator sees OCR progress and stores evidence without changing the drawin
     new MutationObserver(() => window.__ocrStates.push(status.dataset.state)).observe(status, { attributes: true, childList: true, subtree: true });
   });
   const resultResponse = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().includes('/ocr-results'));
-  await page.getByRole('button', { name: 'Recognize selected crop' }).click();
+  await press(page, 'Recognize selected crop');
   const saved = await (await resultResponse).json();
   await page.waitForFunction(() => document.querySelector('#ocr-status').dataset.state === 'completed');
   assert.ok((await page.evaluate(() => window.__ocrStates)).includes('downloading'));
@@ -72,7 +74,7 @@ test('operator sees OCR failure while the non-OCR drawing workflow remains avail
       async dispose() {}
     };
   });
-  await page.getByRole('button', { name: 'Recognize selected crop' }).click();
+  await press(page, 'Recognize selected crop');
   await page.waitForFunction(() => document.querySelector('#ocr-status').dataset.state === 'failed');
   assert.match(await page.locator('#ocr-status').textContent(), /worker stopped/i);
   assert.equal(await page.locator('#raster-workflow').isVisible(), true);
@@ -93,13 +95,14 @@ test('operator can OCR a born-digital PDF page while native positioned text rema
   });
   await page.goto(app.baseUrl); await page.waitForLoadState('networkidle');
   const uploadResponse = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith('/api/source-documents'));
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'vector-plan.pdf'));
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   const submission = await (await uploadResponse).json();
   await page.waitForFunction(() => document.querySelector('#ocr-workflow').hidden === false && Boolean(document.querySelector('#raster-pdf-canvas').style.width));
   assert.match(await page.locator('#raster-workflow-title').textContent(), /PDF page preview/i);
   const resultResponse = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().includes('/ocr-results'));
-  await page.getByRole('button', { name: 'Recognize selected crop' }).click();
+  await press(page, 'Recognize selected crop');
   const saved = await (await resultResponse).json();
   assert.equal(saved.observations[0].status, 'suppressed_by_native');
   assert.equal(saved.observations[0].nativeMatchId, 'pdf:p1:text:0001');
@@ -120,13 +123,14 @@ test('hybrid PDF keeps its pages available to OCR while deterministic BOQ export
   });
   await page.goto(app.baseUrl); await page.waitForLoadState('networkidle');
   const uploadResponse = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith('/api/source-documents'));
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'mixed-plan.pdf'));
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   const submission = await (await uploadResponse).json();
   await page.waitForFunction(() => document.querySelector('#message').classList.contains('error') && document.querySelector('#ocr-workflow').hidden === false && Boolean(document.querySelector('#raster-pdf-canvas').style.width));
   assert.match(await page.locator('#message').textContent(), /mixed|hybrid/i);
   const resultResponse = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().includes('/ocr-results'));
-  await page.getByRole('button', { name: 'Recognize selected crop' }).click();
+  await press(page, 'Recognize selected crop');
   const saved = await (await resultResponse).json();
   assert.equal(saved.processingRun.id, submission.processingRun.id);
   assert.equal(saved.processingRun.status, 'failed');

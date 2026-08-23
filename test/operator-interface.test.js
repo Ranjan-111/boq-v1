@@ -4,6 +4,7 @@ const { readFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { chromium } = require('@playwright/test');
 const { startOperatorApp } = require('../test-support/operator-app');
+const { show, press } = require('../test-support/operator-page');
 
 let app;
 let browser;
@@ -25,8 +26,9 @@ test('operator browser flow uploads a clean DXF and renders its completed BOQ', 
   await page.goto(baseUrl);
   await page.waitForLoadState('networkidle');
 
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'clean-plan.dxf'));
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes('measurement: running'));
   await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes('boq: running'));
   await page.waitForFunction(() => document.querySelector('#run-summary strong')?.textContent.endsWith(': completed'));
@@ -45,7 +47,7 @@ test('operator browser flow uploads a clean DXF and renders its completed BOQ', 
   assert.match(await floorRow.textContent(), /dxf-entity in dxf/);
   assert.match(await floorRow.textContent(), /bounds 0,0,4500,3600/);
 
-  await page.getByRole('button', { name: 'Reprocess this source' }).click();
+  await press(page, 'Reprocess this source');
   await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes('run_0002: completed'));
   await page.waitForFunction(() => document.querySelectorAll('#boq-lines tr').length === 9);
   assert.match(await floorRow.textContent(), /27\.72/);
@@ -63,12 +65,13 @@ test('operator interface explains an unsafe unit input and offers an explicit fa
   assert.equal(await page.locator('#unit-prompt').isVisible(), false, 'but is not shown before it is needed');
 
   const clean = await readFile(join(__dirname, 'fixtures', 'clean-plan.dxf'), 'utf8');
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles({
     name: 'missing-units.dxf',
     mimeType: 'application/dxf',
     buffer: Buffer.from(clean.replace('9\n$INSUNITS\n70\n4\n', ''))
   });
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes('failed'));
 
   /* Now that it has failed on units, the operator is asked -- here, where it
@@ -84,13 +87,14 @@ test('operator interface explains an unsafe unit input and offers an explicit fa
 test('operator can inspect and configure a vector PDF before reviewing its BOQ', async () => {
   const page = await browser.newPage();
   await page.goto(baseUrl);
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles({ name: 'vector-plan.dat', mimeType: 'application/octet-stream', buffer: await readFile(join(__dirname, 'fixtures', 'vector-plan.pdf')) });
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   await page.waitForFunction(() => document.querySelector('#pdf-setup').hidden === false);
   assert.match(await page.locator('#pdf-setup').textContent(), /ROOM 101/);
   await page.locator('#pdf-scale-page-1').fill('72');
   await page.locator('#pdf-region-pdf-p1-path-0001').check();
-  await page.getByRole('button', { name: 'Confirm PDF scale and regions' }).click();
+  await press(page, 'Confirm PDF scale and regions');
   await page.waitForFunction(() => document.querySelector('#boq-lines').textContent.includes('0.5'));
   assert.match(await page.locator('#boq-lines').textContent(), /pdf:p1:path:0001/);
   await page.close();
@@ -99,8 +103,9 @@ test('operator can inspect and configure a vector PDF before reviewing its BOQ',
 test('operator blocks a mixed PDF and explains why vector quantities cannot be omitted', async () => {
   const page = await browser.newPage();
   await page.goto(baseUrl);
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles({ name: 'mixed-plan.pdf', mimeType: 'application/pdf', buffer: await readFile(join(__dirname, 'fixtures', 'mixed-plan.pdf')) });
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   await page.waitForFunction(() => document.querySelector('#message').textContent.match(/mixed|hybrid|vector quantities|raster regions/i));
   assert.equal(await page.locator('#pdf-setup').isHidden(), true);
   assert.equal(await page.locator('#boq-lines tr').count(), 0);
@@ -112,24 +117,25 @@ test('operator calibrates and traces a PNG through the canvas workflow', async (
   const page = await browser.newPage();
   await page.goto(baseUrl);
   const png = await readFile(join(__dirname, 'fixtures', 'raster-200x100.png'));
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles({ name: 'raster-plan.png', mimeType: 'image/png', buffer: png });
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   await page.waitForFunction(() => document.querySelector('#raster-workflow').hidden === false && document.querySelector('#raster-status').textContent.includes('two points'));
   const canvas = page.locator('#raster-canvas');
   await canvas.click({ position: { x: 10, y: 10 } });
   await canvas.click({ position: { x: 110, y: 10 } });
   await page.locator('#raster-distance').fill('2');
-  await page.getByRole('button', { name: 'Confirm calibration' }).click();
+  await press(page, 'Confirm calibration');
   await page.waitForFunction(() => document.querySelector('#raster-status').textContent.includes('at least three points'));
   await canvas.click({ position: { x: 10, y: 10 } });
   await canvas.click({ position: { x: 110, y: 10 } });
   await canvas.click({ position: { x: 110, y: 60 } });
   await canvas.click({ position: { x: 10, y: 60 } });
-  await page.getByRole('button', { name: 'Close traced region' }).click();
+  await press(page, 'Close traced region');
   await page.waitForFunction(() => document.querySelector('#raster-regions').textContent.includes('HUMAN TRACED'));
   assert.match(await page.locator('#raster-regions').textContent(), /HUMAN TRACED/);
   const confirmRequest = page.waitForRequest((request) => request.url().includes('/confirm?'));
-  await page.getByRole('button', { name: 'Confirm region' }).click();
+  await press(page, 'Confirm region');
   assert.match((await confirmRequest).url(), /expectedPageRevision=\d+.*expectedRegionRevision=\d+/);
   await page.waitForFunction(() => document.querySelector('#run-summary strong')?.textContent.endsWith(': completed'));
   assert.match(await page.locator('#boq-lines').textContent(), /Floor finish area/);
@@ -141,13 +147,13 @@ test('operator browser flow displays project rollup and storey provenance', asyn
   const page = await browser.newPage();
   await page.goto(baseUrl);
   await page.getByPlaceholder('Project name').fill('Browser multi-floor project');
-  await page.getByRole('button', { name: 'Start working' }).click();
+  await press(page, 'Start working');
   await page.getByLabel('Building name').fill('Main building');
-  await page.getByRole('button', { name: 'Add building' }).click();
+  await press(page, 'Add building');
   await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '1');
   await page.selectOption('#building-select', { label: 'Main building' });
   await page.getByLabel('Storey name').fill('Ground floor');
-  await page.getByRole('button', { name: 'Add storey' }).click();
+  await press(page, 'Add storey');
   await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '2');
   /* T13: a storey you just created is selected for you -- creating something
      and then being told to select it is friction with no purpose. */
@@ -155,8 +161,9 @@ test('operator browser flow displays project rollup and storey provenance', asyn
   await page.selectOption('#building-select', { label: 'Main building' });
   await page.selectOption('#storey-select', { label: 'Ground floor' });
   await page.locator('#typical-multiplier').fill('2');
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'clean-plan.dxf'));
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   await page.waitForFunction(() => document.querySelector('#rollup-summary').textContent.includes('Browser multi-floor project'));
   await page.waitForFunction(() => document.querySelector('#rollup').hidden === false);
   const rollup = page.locator('#rollup');
@@ -170,29 +177,31 @@ test('operator browser flow reassigns the current source and refreshes rollup pr
   const page = await browser.newPage();
   await page.goto(baseUrl);
   await page.getByPlaceholder('Project name').fill('Browser reassignment project');
-  await page.getByRole('button', { name: 'Start working' }).click();
+  await press(page, 'Start working');
   await page.getByLabel('Building name').fill('Main building');
-  await page.getByRole('button', { name: 'Add building' }).click();
+  await press(page, 'Add building');
   await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '1');
   await page.selectOption('#building-select', { label: 'Main building' });
   await page.getByLabel('Storey name').fill('Ground floor');
-  await page.getByRole('button', { name: 'Add storey' }).click();
+  await press(page, 'Add storey');
   await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '2');
   await page.selectOption('#building-select', { label: 'Main building' });
   await page.getByLabel('Storey name').fill('First floor');
-  await page.getByRole('button', { name: 'Add storey' }).click();
+  await press(page, 'Add storey');
   await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '3');
   /* T13: a storey you just created is selected for you -- creating something
      and then being told to select it is friction with no purpose. */
   assert.notEqual(await page.locator('#storey-select').inputValue(), '', 'the new storey is selected');
   await page.selectOption('#building-select', { label: 'Main building' });
   await page.selectOption('#storey-select', { label: 'Ground floor' });
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'clean-plan.dxf'));
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   await page.waitForFunction(() => document.querySelector('#rollup').hidden === false);
+  await show(page, 'project');
   await page.selectOption('#storey-select', { label: 'First floor' });
   await page.locator('#typical-multiplier').fill('2');
-  await page.getByRole('button', { name: 'Reassign current source' }).click();
+  await press(page, 'Reassign current source');
   await page.waitForFunction(() => document.querySelector('#run-summary').textContent.includes(': completed'));
   await page.waitForFunction(() => document.querySelector('#rollup').textContent.includes('First floor'));
   const rollup = page.locator('#rollup');
@@ -205,10 +214,10 @@ test('operator surfaces building creation network failures', async () => {
   const page = await browser.newPage();
   await page.goto(baseUrl);
   await page.getByPlaceholder('Project name').fill('Browser error project');
-  await page.getByRole('button', { name: 'Start working' }).click();
+  await press(page, 'Start working');
   await page.route('**/api/projects/*/buildings', (route) => route.abort());
   await page.getByLabel('Building name').fill('Main building');
-  await page.getByRole('button', { name: 'Add building' }).click();
+  await press(page, 'Add building');
   await page.waitForFunction(() => document.querySelector('#project-status').textContent.includes('Building creation failed'));
   await page.close();
 });
@@ -217,37 +226,44 @@ test('operator can select any source revision and reassign it to building or pro
   const page = await browser.newPage();
   await page.goto(baseUrl);
   await page.getByPlaceholder('Project name').fill('Browser source revision project');
-  await page.getByRole('button', { name: 'Start working' }).click();
+  await press(page, 'Start working');
   await page.getByLabel('Building name').fill('Main building');
-  await page.getByRole('button', { name: 'Add building' }).click();
+  await press(page, 'Add building');
   await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '1');
   await page.selectOption('#building-select', { label: 'Main building' });
   await page.getByLabel('Storey name').fill('Ground floor');
-  await page.getByRole('button', { name: 'Add storey' }).click();
+  await press(page, 'Add storey');
   await page.waitForFunction(() => document.querySelector('#project-status').dataset.revision === '2');
   await page.selectOption('#building-select', { label: 'Main building' });
   await page.selectOption('#storey-select', { label: 'Ground floor' });
   await page.locator('#source-sheet').fill('A-GROUND');
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'clean-plan.dxf'));
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   await page.waitForFunction(() => document.querySelector('#rollup').hidden === false);
 
+  await show(page, 'project');
   await page.locator('#source-sheet').fill('A-SECOND');
+  await show(page, 'upload');
   await page.locator('#drawing').setInputFiles(join(__dirname, 'fixtures', 'clean-plan.dxf'));
-  await page.getByRole('button', { name: 'Measure this drawing' }).click();
+  await press(page, 'Measure this drawing');
   await page.waitForFunction(() => document.querySelectorAll('#source-document-select option').length === 3);
   assert.match(await page.locator('#source-document-select').textContent(), /A-GROUND/);
 
+  await show(page, 'project');
   await page.locator('#source-document-select').selectOption({ index: 1 });
   await page.selectOption('#reassignment-scope', 'building');
   await page.locator('#typical-multiplier').fill('1');
-  await page.getByRole('button', { name: 'Reassign current source' }).click();
+  await press(page, 'Reassign current source');
   await page.waitForFunction(() => document.querySelector('#reassign-source').dataset.state === 'running');
   await page.waitForFunction(() => document.querySelector('#rollup').textContent.includes('Main building: 27.72 m²'));
   assert.match(await page.locator('#rollup').textContent(), /Main building: 27.72 m²/);
 
+  /* Reassigning starts a new run, so the app moves to the upload view to show
+     its progress. Come back to the project view to change the scope again. */
+  await show(page, 'project');
   await page.selectOption('#reassignment-scope', 'project');
-  await page.getByRole('button', { name: 'Reassign current source' }).click();
+  await press(page, 'Reassign current source');
   await page.waitForFunction(() => document.querySelector('#reassign-source').dataset.state === 'running');
   await page.waitForFunction(() => document.querySelector('#rollup').textContent.includes('Project scope: 27.72 m²'));
   assert.match(await page.locator('#rollup').textContent(), /Project scope: 27.72 m²/);

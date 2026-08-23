@@ -641,7 +641,26 @@ progress::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
 
 /* ─── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .sidebar { display: none; }
+  /* The sidebar used to be safe to hide here, because every section rendered
+     on one long page and scrolling reached all of them. Now that exactly one
+     view is on screen, hiding the navigation would strand the operator with no
+     way out of it -- so it becomes a horizontal strip instead of vanishing. */
+  .app-layout { display: block; }
+  .sidebar {
+    display: block;
+    /* Static, not sticky: the content column scrolls under a sticky strip and
+       the view heading disappears behind it. */
+    position: static;
+    width: auto;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-elevated, var(--bg-base));
+    overflow-x: auto;
+  }
+  .sidebar .nav-label { display: none; }
+  .sidebar .nav-section { display: flex; gap: var(--space-1); padding: var(--space-2); }
+  .sidebar .nav-item { flex: 0 0 auto; white-space: nowrap; }
   .content { padding: var(--space-4); }
   :root { --header-h: 48px; }
 }
@@ -653,3 +672,14 @@ progress::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
 /* The `hidden` attribute must win over any display rule, or a section we asked
    to hide (an empty project picker, a unit prompt not yet needed) still shows. */
 [hidden] { display: none !important; }
+
+/* ── Router: exactly one view at a time ─────────────────────────────────────
+   `[hidden]` must beat every layout rule; a `display:flex` on a form row
+   silently overrode it before, so hidden panels stayed on screen. */
+[hidden] { display: none !important; }
+.view { display: block; }
+.nav-item.locked { opacity: .45; cursor: not-allowed; }
+.nav-item.locked:hover { background: transparent; }
+.nav-item.active { background: var(--bg-active, rgba(255,255,255,.06)); font-weight: 600; }
+.view-locked { padding: var(--space-6) 0; color: var(--text-secondary); font-size: var(--text-sm); }
+.build-stale { background: var(--warn-bg, #4a3400); color: var(--warn-fg, #ffd479); padding: .6rem 1rem; font-size: .85rem; text-align: center; }

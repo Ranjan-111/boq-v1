@@ -4,6 +4,7 @@ const { readFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { chromium } = require('@playwright/test');
 const { startOperatorApp } = require('../test-support/operator-app');
+const { show, press } = require('../test-support/operator-page');
 
 let app;
 let browser;

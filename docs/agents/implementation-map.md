@@ -51,7 +51,12 @@ src/ingestion/pdf.js     vector PDF inspection
 src/ingestion/raster.js  raster page inspection
 src/ingestion/limits.js  bounded-input limits
 src/server.js         HTTP routes
-public/app.js         operator UI
+public/js/api.mjs     the only place the frontend calls fetch; checks response.ok once
+public/js/store.mjs   the frontend's single source of truth; pure, testable in node
+public/js/render.mjs  state in, DOM out; no fetching, no remembering
+public/js/router.mjs  one view on screen at a time; locked steps explain themselves
+public/js/raster.mjs  raster calibration, tracing, PDF setup, browser OCR
+public/js/app.mjs     shell: wires the above together, owns no state of its own
 ```
 
 There is exactly one parser per concern. No duplicate parser or category-rule module

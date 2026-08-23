@@ -29,6 +29,19 @@ const OCR_ASSETS = Object.freeze({
   '/ocr/vendor/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz': { file: 'node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz', contentType: 'application/gzip', trainedDataSha256: '45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91' }
 });
 
+const FRONTEND_MODULES = new Set(['/js/app.mjs', '/js/api.mjs', '/js/store.mjs', '/js/render.mjs', '/js/router.mjs', '/js/raster.mjs']);
+
+/* A hash of the frontend the server is serving. Stamped into index.html and
+   returned by /api/build so the two can be compared. */
+const BUILD_ID = (() => {
+  const hash = createHash('sha256');
+  for (const path of [...FRONTEND_MODULES].sort()) {
+    try { hash.update(require('node:fs').readFileSync(join(__dirname, '..', 'public', path.slice(1)))); }
+    catch { hash.update(path); }
+  }
+  return hash.digest('hex').slice(0, 12);
+})();
+
 class PayloadTooLargeError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -40,9 +53,17 @@ function createServer(application = createApplication()) {
   return createHttpServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://localhost');
-      if (request.method === 'GET' && url.pathname === '/') return sendFile(response, 'index.html', 'text/html; charset=utf-8');
+      if (request.method === 'GET' && url.pathname === '/') return sendIndex(response);
       if (request.method === 'GET' && url.pathname === '/style.css') return sendFile(response, 'style.css', 'text/css; charset=utf-8');
       if (request.method === 'GET' && url.pathname === '/app.js') return sendFile(response, 'app.js', 'text/javascript; charset=utf-8');
+      /* Frontend ES modules. The allowlist is a literal path check, not a join
+         of user input, so there is no traversal to reason about. */
+      if (request.method === 'GET' && FRONTEND_MODULES.has(url.pathname)) {
+        return sendFile(response, url.pathname.slice(1), 'text/javascript; charset=utf-8');
+      }
+      /* F9: lets the page notice it is talking to a server older than itself.
+         A stale process must never again be mistaken for a broken feature. */
+      if (request.method === 'GET' && url.pathname === '/api/build') return sendJson(response, 200, { buildId: BUILD_ID });
       if (request.method === 'GET' && PDFJS_ASSETS[url.pathname]) return sendPdfjsAsset(response, PDFJS_ASSETS[url.pathname]);
       if (request.method === 'GET' && OCR_ASSETS[url.pathname]) return sendOcrAsset(response, OCR_ASSETS[url.pathname]);
       if (request.method === 'POST' && url.pathname === '/api/projects') {
@@ -303,6 +324,13 @@ async function readBody(request, maxBytes, limitName) {
 function sendJson(response, status, body) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify(body));
+}
+
+async function sendIndex(response) {
+  const html = (await readFile(join(__dirname, '..', 'public', 'index.html'), 'utf8'))
+    .replace('<html lang="en">', `<html lang="en" data-build-id="${BUILD_ID}">`);
+  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+  response.end(html);
 }
 
 async function sendFile(response, filename, contentType) {

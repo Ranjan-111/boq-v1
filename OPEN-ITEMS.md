@@ -112,3 +112,21 @@ never be reported as a satisfied one.
 - **Vendor offers do not feed the priced total.** They are surfaced for a human to
   choose; a selection is recorded but does not currently re-price the BOQ line. That
   wiring belongs with the export batch, where the chosen price actually has to appear.
+
+## Frontend rebuild (F1–F9)
+
+Carried limitations after replacing the generated frontend:
+
+- **Rollup lines have no confidence grading.** The grading lives on the run,
+  not the rollup. Reopening a project now restores the contributing run so the
+  grading comes back; if that run can no longer be read, the confidence column
+  reads "not graded in this view" rather than inventing a level.
+- **Only the most recent contributing run is restored on reopen.** A project
+  fed by several drawings shows the last one's classifications. The rollup
+  quantities are complete either way; the classification table is not.
+- **The build-freshness guard compares a hash of the frontend modules only.**
+  A backend-only change does not shift the build id, so a server stale in its
+  API but current in its assets will not be flagged.
+- **No frontend rendering tests.** Reducers and the API client are unit-tested,
+  and flows are covered in a real browser; the renderers in between are
+  exercised only through the browser tests.
