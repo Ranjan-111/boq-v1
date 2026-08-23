@@ -186,9 +186,12 @@ test('a mixed-tier line reports per-contribution tiers, not just the weakest', (
 
 test('queue traversal carries evidence in the same shape and is bounded in queries', () => {
   const repository = createRepository({});
-  const { application, project } = oneStorey({ repository });
+  const application = sync({ repository });
+  const project = application.createProject({ name: 'Queue project' });
+  const source = application.createSourceDocument({ filename: 'residual-blocks.dxf', content: readFileSync(`${__dirname}/fixtures/residual-blocks.dxf`), projectId: project.id, sourceSheet: 'A-PLAN', studioId: 'studio_alpha' });
+  application.startProcessing(source.id);
   const queue = application.getExceptionQueue(project.id, { on: '2026-06-01' });
-  assert.ok(queue.groups.length > 1, 'there is something to traverse');
+  assert.ok(queue.groups.length > 1, `there is something to traverse (${queue.groups.length} groups)`);
 
   const first = repository.measureQueries(() => application.getQueueStep(project.id, { index: 0, on: '2026-06-01' }));
   const later = repository.measureQueries(() => application.getQueueStep(project.id, { index: queue.groups.length - 1, on: '2026-06-01' }));

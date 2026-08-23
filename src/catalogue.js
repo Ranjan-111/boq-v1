@@ -40,6 +40,27 @@ function createCatalogue({ id, studioId, version, label = '', items = [], locali
   return Object.freeze({ id, studioId, version, label, locality, items: Object.freeze(normalized) });
 }
 
+
+/* A built-in default catalogue for the standard DXF measurements. It supplies
+   client-facing descriptions -- not prices -- so a drawing can be approved and
+   exported without a studio first authoring a catalogue, exactly as the default
+   ruleset lets it be measured. A studio's own published catalogue overrides it,
+   and a measurement the default does not know still surfaces as unmapped. */
+const DEFAULT_CATALOGUE = createCatalogue({
+  id: 'catalogue_default', studioId: 'system', version: 1, label: 'Default BOQ items',
+  items: [
+    { code: 'WALL-PLAN', description: 'Wall footprint, plan area', unit: 'm\u00b2', measurement: 'wall_plan', sortOrder: 10 },
+    { code: 'WALL-MAS', description: 'Wall masonry, brick or block in cement mortar', unit: 'm\u00b3', measurement: 'wall_masonry', sortOrder: 20 },
+    { code: 'WALL-PLAS', description: 'Wall plaster, cement, both faces', unit: 'm\u00b2', measurement: 'wall_plaster', sortOrder: 30 },
+    { code: 'FLOOR-FIN', description: 'Floor finish area', unit: 'm\u00b2', measurement: 'floor_area', sortOrder: 40 },
+    { code: 'SKIRTING', description: 'Skirting, to match floor finish', unit: 'm', measurement: 'skirting', sortOrder: 50 },
+    { code: 'ROOM-CNT', description: 'Rooms enumerated', unit: 'nos', measurement: 'room_count', sortOrder: 60 },
+    { code: 'DOOR-CNT', description: 'Door openings enumerated', unit: 'nos', measurement: 'door_count', sortOrder: 70 },
+    { code: 'WIN-CNT', description: 'Window openings enumerated', unit: 'nos', measurement: 'window_count', sortOrder: 80 },
+    { code: 'FURN-CNT', description: 'Loose furniture and fixtures enumerated', unit: 'nos', measurement: 'furniture_count', sortOrder: 90 }
+  ]
+});
+
 /** Every item a measurement maps to. One measurement may legitimately map to
     several -- internal versus external plaster is the obvious case. */
 function itemsFor(catalogue, measurement) {
@@ -51,8 +72,9 @@ function itemsFor(catalogue, measurement) {
  * `unit_mismatch` rather than inventing a second refusal mechanism.
  */
 function applyCatalogue(line, catalogue) {
-  const base = { measurement: line.measurement, catalogueId: catalogue?.id ?? null, catalogueVersion: catalogue?.version ?? null, item: null };
-  if (!catalogue) return { ...base, status: 'unmapped', reason: 'No catalogue has been published for this studio, so no line has a client-facing description.' };
+  const effective = catalogue || DEFAULT_CATALOGUE;
+  const base = { measurement: line.measurement, catalogueId: effective.id, catalogueVersion: effective.version, item: null };
+  catalogue = effective;
   const candidates = itemsFor(catalogue, line.measurement);
   if (!candidates.length) {
     return { ...base, status: 'unmapped', reason: `No catalogue entry maps ${line.measurement} to a BOQ item. Add one so this line can be described to a client; it will not be exported under its internal name.` };
@@ -64,4 +86,4 @@ function applyCatalogue(line, catalogue) {
   return { ...base, status: 'mapped', item: matching };
 }
 
-module.exports = { createCatalogue, applyCatalogue, itemsFor, CatalogueError, CATALOGUE_STATUSES };
+module.exports = { createCatalogue, applyCatalogue, itemsFor, DEFAULT_CATALOGUE, CatalogueError, CATALOGUE_STATUSES };

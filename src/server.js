@@ -137,6 +137,20 @@ function createServer(application = createApplication()) {
         const body = await readJson(request);
         return sendJson(response, 201, { boqVersion: application.approveBoqVersion(approveMatch[1], body) });
       }
+      const exportMatch = /^\/api\/boq-versions\/(boqv_\d+)\/export$/.exec(url.pathname);
+      if (request.method === 'GET' && exportMatch) {
+        const format = (url.searchParams.get('format') || 'csv').toLowerCase();
+        const result = application.exportBoq(exportMatch[1], { format });
+        if (url.searchParams.get('sidecar') === '1') {
+          response.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-disposition': `attachment; filename="${result.boqVersionId}-provenance.json"` });
+          return response.end(result.provenance);
+        }
+        const contentType = format === 'pdf' ? 'application/pdf'
+          : format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv; charset=utf-8';
+        response.writeHead(200, { 'content-type': contentType, 'content-disposition': `attachment; filename="${result.filename}"` });
+        return response.end(result.content);
+      }
       const boqVersionMatch = /^\/api\/boq-versions\/(boqv_\d+)$/.exec(url.pathname);
       if (request.method === 'GET' && boqVersionMatch) return sendJson(response, 200, { boqVersion: application.getBoqVersion(boqVersionMatch[1]) });
       const runClassificationsMatch = /^\/api\/runs\/(run_\d+)\/classifications$/.exec(url.pathname);

@@ -15,7 +15,7 @@ const { deflateRawSync, crc32 } = require('node:zlib');
 
 class ExportError extends Error {}
 
-const FORMATS = Object.freeze(['csv', 'xlsx']);
+const FORMATS = Object.freeze(['csv', 'xlsx', 'pdf']);
 
 /* Tier honesty must survive into the delivered document. This is the last point
    at which a traced estimate could come to look like a measured quantity, and
@@ -224,9 +224,104 @@ function encodeProvenance(artefact, snapshot) {
   }, null, 2)}\n`, 'utf8');
 }
 
-function encode(artefact, format, snapshot) {
-  if (!FORMATS.includes(format)) throw new ExportError(`Unsupported export format "${format}". Supported: ${FORMATS.join(', ')}.`);
-  return format === 'csv' ? encodeCsv(artefact) : encodeXlsx(artefact);
+
+/* A minimal, dependency-free PDF: Helvetica text on Letter pages, the stamp then
+   the table. Deterministic -- no dates or ids beyond the artefact's own -- so a
+   re-export is byte-identical, the same guarantee CSV and XLSX give. */
+function pdfEscape(text) { return String(text ?? '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)'); }
+
+function encodePdf(artefact) {
+  const pageWidth = 792; const pageHeight = 612; // Letter, landscape
+  const left = 36; const top = 576; const lineHeight = 14; const fontSize = 9;
+  const bottom = 40;
+  const rowsPerPage = Math.floor((top - bottom) / lineHeight);
+
+  /* Column layout, x offsets in points. */
+  const cols = [left, left + 90, left + 340, left + 380, left + 450, left + 520, left + 610];
+  const headerCells = ['Item', 'Description', 'Unit', 'Qty', 'Rate', 'Amount', 'Tier'];
+  const fmt = (v) => (v === null || v === undefined ? '' : String(v));
+  const round = (v) => (Number.isFinite(v) ? Math.round((v + Number.EPSILON) * 100) / 100 : v);
+
+  const stampLines = [
+    `Bill of Quantities  -  ${artefact.projectName}`,
+    `BOQ version ${artefact.boqVersionId}   approved by ${artefact.stamp.approvedBy} on ${artefact.stamp.approvedAt}`,
+    `ruleset ${artefact.stamp.rulesetVersion}   assumptions v${artefact.stamp.assumptionsVersion}   rate book v${artefact.stamp.rateBookVersion}   catalogue v${artefact.stamp.catalogueVersion}   parser ${artefact.stamp.parserVersion}`,
+    `input tiers: ${artefact.stamp.tiers.join(', ')}   currency: ${artefact.stamp.currency || 'n/a'}`,
+    artefact.total.complete
+      ? `Total: ${round(artefact.total.amount)} ${artefact.total.currency || ''}`
+      : `Total: ${round(artefact.total.amount)} ${artefact.total.currency || ''}  -  INCOMPLETE: ${artefact.total.unpricedLines} of ${artefact.total.pricedLines + artefact.total.unpricedLines} lines have no amount`
+  ];
+
+  /* Build a flat list of "print instructions": each is a y position and an array
+     of [x, text] cells. Paginate. */
+  const rowsData = artefact.rows.map((r) => [
+    [cols[0], fmt(r.itemCode)],
+    [cols[1], (r.description || '').slice(0, 46)],
+    [cols[2], fmt(r.unit)],
+    [cols[3], r.quantity === null ? '' : String(round(r.quantity))],
+    [cols[4], r.rate === null ? '' : String(round(r.rate))],
+    [cols[5], r.amount === null ? '' : String(round(r.amount))],
+    [cols[6], r.tier]
+  ]);
+
+  const pages = [];
+  let cursor = 0;
+  let first = true;
+  while (first || cursor < rowsData.length) {
+    first = false;
+    let y = top;
+    const ops = [];
+    const put = (x, yy, text, bold = false) => {
+      ops.push(`BT /${bold ? 'F2' : 'F1'} ${fontSize} Tf ${x} ${yy} Td (${pdfEscape(text)}) Tj ET`);
+    };
+    if (pages.length === 0) {
+      for (const s of stampLines) { put(left, y, s, true); y -= lineHeight; }
+      y -= 6;
+    }
+    for (const [x, text] of headerCells.map((h, i) => [cols[i], h])) put(x, y, text, true);
+    y -= lineHeight;
+    while (cursor < rowsData.length && y > bottom) {
+      for (const [x, text] of rowsData[cursor]) put(x, y, text);
+      y -= lineHeight; cursor += 1;
+    }
+    pages.push(ops.join('\n'));
+    if (cursor >= rowsData.length) break;
+  }
+
+  /* Assemble the PDF objects. */
+  const objects = [];
+  const pageObjIds = pages.map((_, i) => 5 + i * 2);
+  const contentObjIds = pages.map((_, i) => 6 + i * 2);
+
+  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objects[2] = `<< /Type /Pages /Kids [${pageObjIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pages.length} >>`;
+  objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
+  objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>';
+  pages.forEach((content, i) => {
+    objects[pageObjIds[i]] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjIds[i]} 0 R >>`;
+    objects[contentObjIds[i]] = `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`;
+  });
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [];
+  for (let i = 1; i < objects.length; i += 1) {
+    if (!objects[i]) continue;
+    offsets[i] = Buffer.byteLength(pdf, 'latin1');
+    pdf += `${i} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+  const xrefStart = Buffer.byteLength(pdf, 'latin1');
+  const maxId = objects.length - 1;
+  pdf += `xref\n0 ${maxId + 1}\n0000000000 65535 f \n`;
+  for (let i = 1; i <= maxId; i += 1) {
+    pdf += objects[i] ? `${String(offsets[i]).padStart(10, '0')} 00000 n \n` : '0000000000 00000 f \n';
+  }
+  pdf += `trailer\n<< /Size ${maxId + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return Buffer.from(pdf, 'latin1');
 }
 
-module.exports = { buildArtefact, encode, encodeCsv, encodeXlsx, encodeProvenance, tierOf, TIERS, FORMATS, ExportError };
+function encode(artefact, format, snapshot) {
+  if (!FORMATS.includes(format)) throw new ExportError(`Unsupported export format "${format}". Supported: ${FORMATS.join(', ')}.`);
+  return format === 'csv' ? encodeCsv(artefact) : format === 'xlsx' ? encodeXlsx(artefact) : encodePdf(artefact);
+}
+
+module.exports = { buildArtefact, encode, encodeCsv, encodeXlsx, encodePdf, encodeProvenance, tierOf, TIERS, FORMATS, ExportError };

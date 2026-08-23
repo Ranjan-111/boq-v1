@@ -20,6 +20,20 @@ function workspace(options = {}) {
   const application = sync(options);
   const project = application.createProject({ name: 'Priced project' });
   const source = application.createSourceDocument({ filename: 'plan.dxf', content: cleanPlan, projectId: project.id, sourceSheet: 'A-PLAN', studioId: 'studio_alpha' });
+  /* These tests key rate books by measurement name, so publish a catalogue whose
+     item codes are the measurement names. It overrides the built-in default, so
+     pricing looks rates up under the same keys the rate book uses. */
+  application.publishCatalogue(project.id, { studioId: 'studio_alpha', items: [
+    { code: 'floor_area', description: 'Floor finish area', unit: 'm²', measurement: 'floor_area' },
+    { code: 'wall_plaster', description: 'Wall plaster', unit: 'm²', measurement: 'wall_plaster' },
+    { code: 'wall_masonry', description: 'Wall masonry', unit: 'm³', measurement: 'wall_masonry' },
+    { code: 'wall_plan', description: 'Wall plan', unit: 'm²', measurement: 'wall_plan' },
+    { code: 'skirting', description: 'Skirting', unit: 'm', measurement: 'skirting' },
+    { code: 'room_count', description: 'Rooms', unit: 'nos', measurement: 'room_count' },
+    { code: 'door_count', description: 'Doors', unit: 'nos', measurement: 'door_count' },
+    { code: 'window_count', description: 'Windows', unit: 'nos', measurement: 'window_count' },
+    { code: 'furniture_count', description: 'Furniture', unit: 'nos', measurement: 'furniture_count' }
+  ] });
   const run = application.getRun(application.startProcessing(source.id).id);
   return { application, project, source, run };
 }

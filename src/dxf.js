@@ -163,9 +163,9 @@ function measureDxf(sourceDocument, units, parsedDocument, {
       block: entity.block || null,
       category: null,
       kind: entity.kind,
-      reason: entity.kind === 'annotation'
+      reason: entity.reason || (entity.kind === 'annotation'
         ? `${entity.type} is an annotation (a label or dimension string). It carries no quantity, so nothing is missing from the BOQ because of it.`
-        : `${entity.type} geometry is not measured by any rule, so anything it represents is absent from the BOQ. Check whether it should have been billed.`
+        : `${entity.type} geometry is not measured by any rule, so anything it represents is absent from the BOQ. Check whether it should have been billed.`)
     });
   }
   for (const entity of document.entities) {
@@ -425,7 +425,13 @@ function readEntity(type, groups, fallbackHandle = '') {
   }
   if (['HATCH', 'LWPOLYLINE', 'INSERT'].includes(type) && (!entity.handle || !entity.layer)) throw malformedEntityError(type, entity.handle);
   if (type === 'INSERT' && !entity.block) throw malformedEntityError(type, entity.handle, 'its block reference is missing');
-  if (type === 'INSERT' && /XREF|EXTERNAL|REFERENCE/i.test(entity.block)) throw externalReferenceError(entity.block);
+  if (type === 'INSERT' && /XREF|EXTERNAL|REFERENCE/i.test(entity.block)) {
+    /* The block's geometry lives in an external file we do not have. Skip it and
+       report it rather than failing the whole drawing -- the incomplete count
+       surfaces as a blocking exception, which is more useful than a hard refuse. */
+    return { ...entity, skipped: true, kind: 'external-reference',
+      reason: `INSERT references an external block (${entity.block}) whose geometry is not in this file, so it cannot be counted. Bind or embed the reference to include it.` };
+  }
   /* Every entity that got this far is returned. LINE used to be validated --
      strictly enough that a malformed one rejected the whole drawing -- and then
      discarded here, so a valid one was silently thrown away and a drawing whose

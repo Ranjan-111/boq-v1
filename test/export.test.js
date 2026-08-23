@@ -215,5 +215,5 @@ test('a provenance sidecar traces every exported number back to source objects',
 
 test('an unsupported format is refused rather than silently defaulting', () => {
   const { application, boqVersionId } = approvedProject();
-  assert.throws(() => application.exportBoq(boqVersionId, { format: 'pdf' }), /format/i);
+  assert.throws(() => application.exportBoq(boqVersionId, { format: 'docx' }), /format/i);
 });

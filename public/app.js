@@ -1392,6 +1392,8 @@ if (approveButton) {
     if (response.ok) {
       approvalError.className = 'text-sm status-msg success mt-2';
       toast('BOQ version approved', 'success');
+      const controls = document.querySelector('#export-controls');
+      if (controls) { controls.hidden = false; controls.dataset.versionId = versionId; }
     } else {
       approvalError.className = 'text-sm error mt-2';
       toast(body.error, 'error');
@@ -1490,3 +1492,26 @@ wsLine?.addEventListener('change', () => {
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 initRouter();
+
+
+/* ---- export download (T4/T10) ------------------------------------------- */
+document.querySelectorAll('[data-export]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const controls = document.querySelector('#export-controls');
+    const versionId = controls?.dataset.versionId || document.querySelector('#project-status')?.dataset.boqVersionId;
+    if (!versionId) { toast('Approve the BOQ version first', 'error'); return; }
+    const kind = button.dataset.export;
+    const query = kind === 'sidecar' ? 'format=csv&sidecar=1' : `format=${kind}`;
+    const response = await fetch(`/api/boq-versions/${versionId}/export?${query}`);
+    if (!response.ok) { const body = await response.json().catch(() => ({})); toast(body.error || 'Export failed', 'error'); return; }
+    const blob = await response.blob();
+    const disposition = response.headers.get('content-disposition') || '';
+    const name = (disposition.match(/filename="([^"]+)"/) || [])[1] || `boq.${kind}`;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = name;
+    document.body.append(anchor); anchor.click(); anchor.remove();
+    URL.revokeObjectURL(url);
+    toast(`Downloaded ${name}`, 'success');
+  });
+});

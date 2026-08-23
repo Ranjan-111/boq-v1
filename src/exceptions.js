@@ -125,7 +125,7 @@ function exceptionsForRun(run) {
 
   for (const entry of run.boq?.unclassified || []) {
     /* Split on whether the omission could have carried a quantity. */
-    const type = entry.kind === 'unmeasured-geometry' ? 'unmeasured_geometry' : 'unclassified_geometry';
+    const type = ['unmeasured-geometry', 'external-reference'].includes(entry.kind) ? 'unmeasured_geometry' : 'unclassified_geometry';
     out.push(makeException({ ...base, type, anchor: entry.handle || entry.sourceObjectId,
       sourceObjectId: entry.sourceObjectId, measurement: null,
       groupKey: `${type}:${entry.layer || 'unknown'}:${entry.type || 'geometry'}`,

@@ -326,6 +326,16 @@
                 </div>
                 <button id="approve-boq" type="button" class="btn-success" disabled>Approve BOQ version</button>
               </div>
+              <div id="export-controls" hidden style="margin-top:16px">
+                <p class="fw-600">Download the approved BOQ</p>
+                <p class="text-sm text-secondary mt-2">Byte-identical reproductions of the approved snapshot. The provenance sidecar traces every number to its source objects.</p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                  <button type="button" class="btn-primary" data-export="csv">Download CSV</button>
+                  <button type="button" class="btn-primary" data-export="xlsx">Download XLSX</button>
+                  <button type="button" class="btn-primary" data-export="pdf">Download PDF</button>
+                  <button type="button" data-export="sidecar">Download provenance (JSON)</button>
+                </div>
+              </div>
             </div>
           </section>
 

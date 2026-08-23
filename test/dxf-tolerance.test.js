@@ -158,3 +158,24 @@ test('a LINE on a non-measured layer still surfaces rather than vanishing', () =
   assert.equal(reported.length, 1, 'a line no rule measured is reported, not silently dropped');
   assert.equal(reported[0].kind, 'unmeasured-geometry');
 });
+
+test('an INSERT referencing an external block is skipped and reported, not fatal', () => {
+  /* A furniture library referenced as an xref lives outside the file. We cannot
+     measure it, but the rest of the drawing is fine -- skip the xref, measure
+     the walls and rooms, and raise it as unmeasured geometry so the incomplete
+     count is visible rather than the whole upload failing. */
+  const withXref = fixture('clean-plan.dxf').toString('utf8')
+    .replace('0\nENDSEC\n0\nEOF\n', '0\nINSERT\n5\nX1\n8\nA-FURN\n2\nxref-external-library-sofa\n10\n1000\n20\n1000\n0\nENDSEC\n0\nEOF\n');
+  const document = { id: 'src_0001', version: 1, filename: 'with-xref.dxf', sourceSheet: 'A', content: withXref };
+  const { document: parsed, units, versions } = inspectDxf(document);
+  const boq = measureDxf(document, units, parsed, { versions, runId: 'run_0001' });
+
+  assert.equal(boq.lines.find((l) => l.measurement === 'floor_area').quantity, 27.72, 'the rest still measures');
+  const reported = boq.unclassified.filter((e) => /xref/i.test(e.block || ''));
+  assert.equal(reported.length, 1, 'the xref insert is reported');
+  assert.equal(reported[0].kind, 'external-reference');
+
+  const run = { id: 'run_0001', projectId: 'p', sourceDocumentId: 's', boq, residuals: [], pages: [] };
+  const blocking = exceptionsForRun(run).filter((e) => e.type === 'unmeasured_geometry');
+  assert.ok(blocking.length > 0, 'and the incomplete geometry blocks a clean approval');
+});
