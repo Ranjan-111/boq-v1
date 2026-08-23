@@ -7,15 +7,22 @@
     <meta name="description" content="Drawing-to-BOQ operator interface — deterministic, source-backed quantity takeoffs from architectural drawings.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
   </head>
   <body>
     <div class="app">
-      <!-- ── Header ──────────────────────────────────────── -->
+      <!-- ── Utility strip ───────────────────────────────── -->
+      <div class="utility-strip">
+        <span>Drawing-to-BOQ takeoff</span>
+        <span class="spacer"></span>
+        <span class="mono">Every quantity traces to a source object</span>
+      </div>
+
+      <!-- ── Top nav ─────────────────────────────────────── -->
       <header class="app-header">
         <div class="app-logo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          <span class="chevron-mark" aria-hidden="true"><i></i><i></i></span>
           <span>BOQ Operator</span>
         </div>
         <div class="header-meta">
@@ -338,9 +345,9 @@
                 <p class="fw-600">Download the approved BOQ</p>
                 <p class="text-sm text-secondary mt-2">Byte-identical reproductions of the approved snapshot. The provenance sidecar traces every number to its source objects.</p>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-                  <button type="button" class="btn-primary" data-export="csv">Download CSV</button>
-                  <button type="button" class="btn-primary" data-export="xlsx">Download XLSX</button>
                   <button type="button" class="btn-primary" data-export="pdf">Download PDF</button>
+                  <button type="button" class="btn-outline" data-export="csv">Download CSV</button>
+                  <button type="button" class="btn-outline" data-export="xlsx">Download XLSX</button>
                   <button type="button" data-export="sidecar">Download provenance (JSON)</button>
                 </div>
               </div>
@@ -348,6 +355,21 @@
           </section>
 
         </main>
+      </div>
+    </div>
+
+    <!-- ── Closing ink slab ────────────────────────────── -->
+    <div class="help-band">
+      <div class="inner">
+        <div>
+          <h3>Every number here is traceable.</h3>
+          <p>Quantities come from named DXF entities, never from an estimate. Where a drawing cannot be read, the system says so instead of guessing.</p>
+        </div>
+        <div class="tabs">
+          <button type="button" class="tab" data-view-link="upload">Upload a drawing</button>
+          <button type="button" class="tab" data-view-link="exceptions">Review exceptions</button>
+          <button type="button" class="tab" data-view-link="export">Approve &amp; export</button>
+        </div>
       </div>
     </div>
 

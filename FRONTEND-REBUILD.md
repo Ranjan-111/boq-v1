@@ -138,3 +138,37 @@ Two improvements came out of the same work:
 
 Verified by diffing every rollup quantity for `residual_test.dxf` before the
 rebuild and after it. Identical.
+
+## Visual layer — HP design system (2026-08-24)
+
+`style.css` was rewritten from scratch against "Design System Analysis HP", and
+`index.html` gained the shell structure that system implies. The module layer
+(store / api / router / render / raster / app) is unchanged -- it was rebuilt
+the day before and is covered by tests; re-deriving it would have thrown that
+away for nothing.
+
+Applied:
+- Pure white canvas, near-black ink, cloud/fog bands for section rhythm
+- HP Electric Blue as the lone signal: one filled CTA per viewport, links, and
+  the chevron wordmark. Secondary actions became `btn-outline`
+- Manrope (the analysis's no-metric-adjustment substitute for Forma DJR Micro)
+- Sharp 4px buttons against soft 16px cards -- the system's visual signature
+- Uppercase button labels at 0.7px tracking, 44px height
+- Utility strip -> top nav -> white body -> closing ink slab
+
+Two recorded deviations:
+1. A monospace face is kept for identifiers only (source-object handles, run
+   ids, provenance dumps). The system is single-family, but people read
+   `src_0002:42A` against a drawing and a proportional face makes that
+   error-prone.
+2. Resolution buttons in the exception queue wrap rather than staying on one
+   line: their labels are whole sentences, not verbs.
+
+### Root cause of "stuck in Review BOQ"
+
+Uploading a drawing **without first creating a project** measured it
+project-lessly. The server permits that, but the BOQ version, the exception
+queue and the rollup are all project-scoped, so the operator reached Review BOQ
+and could go no further -- no approve, no export, no queue, and the greyed-out
+sidebar was telling the truth. Reopening an existing project worked precisely
+because it had a project. The shell now creates one before sending the drawing.

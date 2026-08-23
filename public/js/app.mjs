@@ -156,7 +156,10 @@ function render() {
   approvalStateEl.dataset.status = approval.status;
   approvalStateEl.dataset.versionId = approval.versionId || '';
   approvalStateEl.dataset.blocking = String(state.queue.counts.blocking);
-  if (approvalBanner) approvalBanner.className = `approval-banner ${approval.canApprove ? 'can-approve' : 'blocked'}`;
+  /* An approved version is not "blocked" -- it is finished. Painting it with
+     the refusal treatment because `canApprove` is false reads as a warning on
+     a screen whose whole message is that the work is done. */
+  if (approvalBanner) approvalBanner.className = `approval-banner ${approval.status === 'blocked' ? 'blocked' : 'can-approve'}`;
   approveButton.hidden = approval.status === 'approved';
   approveButton.disabled = !approval.canApprove;
   exportControls.hidden = !approval.canExport;
@@ -428,6 +431,17 @@ async function submit(url, body) {
   button.disabled = true;
   store.dispatch('unit:dismissed');
   try {
+    /* A drawing measured without a project is a dead end: the BOQ version, the
+       exception queue and the rollup are all project-scoped, so the operator
+       reaches Review BOQ and can go no further -- no approve, no export, no
+       queue. The server permits it, but nothing downstream works, so give the
+       drawing a home before sending it. */
+    if (body instanceof FormData && !store.state.project) {
+      const { project } = await api.post('/api/projects', {});
+      store.dispatch('project:loaded', { project });
+      try { localStorage.setItem('boq.activeProject', project.id); } catch { /* private mode */ }
+      renderProjectControls();
+    }
     if (body instanceof FormData && store.state.project) {
       body.set('projectId', store.state.project.id);
       if (buildingSelect.value) body.set('buildingId', buildingSelect.value);
@@ -682,6 +696,12 @@ async function checkBuild() {
       document.body.prepend(banner);
     }
   } catch { /* an older server has no /api/build; that is not an error */ }
+}
+
+/* The closing ink slab offers the three actions the operator most often wants
+   next; they navigate rather than duplicating any behaviour. */
+for (const link of document.querySelectorAll('[data-view-link]')) {
+  link.addEventListener('click', () => go(link.dataset.viewLink));
 }
 
 /* ── Init ────────────────────────────────────────────────────────────────── */

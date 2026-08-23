@@ -246,7 +246,10 @@ export function renderQueue(queue, onResolve) {
     const actions = document.createElement('div');
     actions.className = 'exception-actions';
     for (const option of group.resolutionOptions || []) {
-      actions.append(resolutionButton(group, option, onResolve, option.action === 'dismiss' ? 'btn-sm' : 'btn-sm btn-primary'));
+      /* Resolving an exception offers equal choices, not a call to action, so
+         none of them takes the reserved blue fill: the system allows it at most
+         twice per viewport, and a queue of twenty would drown in it. */
+      actions.append(resolutionButton(group, option, onResolve, option.action === 'dismiss' ? 'btn-sm' : 'btn-sm btn-outline'));
     }
     card.append(actions);
     return card;

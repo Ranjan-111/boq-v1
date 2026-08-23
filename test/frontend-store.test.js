@@ -168,3 +168,21 @@ test('subscribers see every change, which is what keeps two panels from disagree
   assert.deepEqual(seen, ['review', 'export']);
   assert.equal(store.state.view, 'project');
 });
+
+test('a project is always present once a drawing has been measured', async () => {
+  const { initialState, reduce, reachability, approvalState } = await storeModule;
+  /* Uploading without a project used to leave the operator stranded on Review
+     BOQ: the queue, the rollup and the BOQ version are all project-scoped, so
+     none of the following steps existed. The shell now gives the drawing a
+     project before sending it; this pins what that must produce. */
+  let state = initialState();
+  state = reduce(state, 'project:loaded', { project: { id: 'project_0001', currentBoqVersionId: 'boqv_0001', rollup: { lines: [{ measurement: 'floor_area', quantity: 24.48 }] } } });
+  state = reduce(state, 'queue:loaded', { queue: { counts: { total: 4, blocking: 0, advisory: 4, groups: 4 }, groups: [{ groupKey: 'a' }] } });
+
+  const reach = reachability(state);
+  assert.equal(reach.review.reachable, true);
+  assert.equal(reach.exceptions.reachable, true, 'the queue is reachable');
+  assert.equal(reach.rollup.reachable, true, 'the rollup is reachable');
+  assert.equal(reach.export.reachable, true, 'approve and export is reachable');
+  assert.equal(approvalState(state).canApprove, true, 'and the BOQ can actually be approved');
+});
