@@ -48,7 +48,16 @@ function measureDxf(sourceDocument, units, parsedDocument, {
   const byCategory = { door: [], window: [], furniture: [] };
   for (const entity of document.entities) {
     const category = layerCategory(entity.layer) || blockCategory(entity.block);
-    if (entity.type === 'HATCH' && category === 'wall' && entity.points.length >= 3) walls.push(entity);
+    /* A wall's measure is its centre-line length. A HATCH is a filled footprint,
+       so its length is area / thickness. A LINE or polyline is drawn along the
+       wall itself, so its length is the path (open) or perimeter (closed loop).
+       All are walls; wallGeometry records which, so provenance stays honest
+       about how the number was derived and a HATCH keeps measuring identically. */
+    if (category === 'wall') {
+      if (entity.type === 'HATCH' && entity.points.length >= 3) { entity.wallGeometry = 'footprint'; walls.push(entity); }
+      else if (entity.type === 'LWPOLYLINE' && entity.points.length >= 2) { entity.wallGeometry = 'centre-line'; walls.push(entity); }
+      else if (entity.type === 'LINE' && entity.points.length === 2) { entity.wallGeometry = 'centre-line'; walls.push(entity); }
+    }
     if (entity.type === 'LWPOLYLINE' && category === 'room' && entity.points.length >= 3) rooms.push(entity);
     if (entity.type === 'INSERT' && category && byCategory[category]) byCategory[category].push(entity);
   }
@@ -75,7 +84,8 @@ function measureDxf(sourceDocument, units, parsedDocument, {
       geometry,
       geometryResolution,
       nativeHandle: entity.handle,
-      handleSource: entity.handleSource || 'file'
+      handleSource: entity.handleSource || 'file',
+      ...(entity.wallGeometry ? { wallGeometry: entity.wallGeometry } : {})
     });
     sourceObjects.set(object.sourceObjectId, object);
     objectByEntity.set(entity, object);
@@ -89,7 +99,14 @@ function measureDxf(sourceDocument, units, parsedDocument, {
     toMetres, typicalMultiplier, assumptions: resolvedAssumptions, settings: ruleset.settings,
     objectFor: (entity) => objectByEntity.get(entity),
     areaOf: (entity) => polygonArea(entity.points) * toMetres * toMetres * typicalMultiplier,
-    perimeterOf: (entity) => polygonPerimeter(entity.points) * toMetres * typicalMultiplier
+    perimeterOf: (entity) => polygonPerimeter(entity.points) * toMetres * typicalMultiplier,
+    wallLengthOf: (entity) => {
+      if (entity.wallGeometry === 'footprint') {
+        return (polygonArea(entity.points) * toMetres * toMetres * typicalMultiplier) / resolvedAssumptions.wallThickness;
+      }
+      const run = entity.closed ? polygonPerimeter(entity.points) : pathLength(entity.points);
+      return run * toMetres * typicalMultiplier;
+    }
   };
 
   const consumed = new Set();
@@ -357,8 +374,12 @@ function readEntity(type, groups, fallbackHandle = '') {
   }
   for (const [code, value] of groups) if (code >= 10 && code <= 59 && value !== '' && !Number.isFinite(Number(value))) throw malformedEntityError(type, entity.handle);
   if (type === 'LINE') {
-    const requiredCoordinates = [10, 20, 11, 21];
-    if (!entity.handle || !entity.layer || requiredCoordinates.some((code) => { const value = group(code); return value === '' || !Number.isFinite(Number(value)); })) throw malformedEntityError(type, entity.handle, 'complete finite start/end coordinates, handle, and layer are required');
+    /* A line has a start (10/20) and an end (11/21). Non-finite coordinates are
+       genuine corruption and still reject; a missing layer just means the line
+       is unclassified downstream, and the handle is synthesized if absent. */
+    const coords = [10, 20, 11, 21].map((code) => Number(group(code)));
+    if (coords.some((value) => !Number.isFinite(value))) throw malformedEntityError(type, entity.handle, 'complete finite start/end coordinates are required');
+    entity.points.push([coords[0], coords[1]], [coords[2], coords[3]]);
   }
   if (type === 'LWPOLYLINE' || type === 'HATCH') {
     let x = null;
@@ -366,17 +387,10 @@ function readEntity(type, groups, fallbackHandle = '') {
       if (code === 10) { if (x !== null) throw malformedEntityError(type, entity.handle); x = Number(value); if (!Number.isFinite(x)) throw malformedEntityError(type, entity.handle); }
       if (code === 20) { const y = Number(value); if (x === null || !Number.isFinite(y)) throw malformedEntityError(type, entity.handle); entity.points.push([x, y]); x = null; }
     }
-    /* A dangling x with no y IS corrupt. But a polyline with one or two
-       vertices is perfectly valid DXF -- an open segment, common on dimension
-       and centre-line layers. It simply encloses no area, so it is reported as
-       unmeasured geometry rather than failing the drawing. */
     if (x !== null) throw malformedEntityError(type, entity.handle);
-    if (entity.points.length < 3) {
-      return {
-        ...entity, skipped: true, kind: 'unmeasured-geometry',
-        reason: `${type} has ${entity.points.length} vertex point(s), so it encloses no area.`
-      };
-    }
+    /* Group 70 bit 1 marks a closed polyline. Closedness decides whether the
+       run is the path length (open) or the perimeter (closed loop). */
+    if (type === 'LWPOLYLINE') entity.closed = (Number(group(70)) & 1) === 1;
   }
   if (type === 'INSERT') {
     /* Insertion point (10/20) plus the placement transform: scale (41/42) and
@@ -419,6 +433,7 @@ function blockCategory(block = '') {
   return null;
 }
 function polygonArea(points) { return Math.abs(points.reduce((area, point, index) => { const next = points[(index + 1) % points.length]; return area + point[0] * next[1] - next[0] * point[1]; }, 0) / 2); }
+function pathLength(points) { let total = 0; for (let i = 0; i + 1 < points.length; i += 1) total += Math.hypot(points[i + 1][0] - points[i][0], points[i + 1][1] - points[i][1]); return total; }
 function polygonPerimeter(points) { return points.reduce((perimeter, point, index) => { const next = points[(index + 1) % points.length]; return perimeter + Math.hypot(next[0] - point[0], next[1] - point[1]); }, 0); }
 function quantity(value) { return Number(value.toFixed(6)); }
 function line(measurement, label, value, unit, evidence, contributions) {

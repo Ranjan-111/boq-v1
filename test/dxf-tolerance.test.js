@@ -126,27 +126,35 @@ test('a drawing carrying every trait that broke real files still ingests', () =>
     'and the geometry we could not read still blocks approval');
 });
 
-test('a LINE entity is never silently discarded', () => {
-  /* Regression: LINE was in VALIDATED_ENTITY_TYPES, so a malformed one could
-     reject the whole drawing, but readEntity then returned null for it -- so a
-     valid LINE was validated and thrown away. A drawing whose walls are drawn
-     as lines measured nothing at all, and said nothing about why. */
-  const lines = ['0', 'SECTION', '2', 'ENTITIES'];
-  for (const [x1, y1, x2, y2] of [[0, 0, 6000, 0], [6000, 0, 6000, 4000]]) {
+test('a LINE on a wall layer is measured, not discarded', () => {
+  /* Regression: LINE was validated but then returned null, so a wall drawn as
+     lines measured nothing and said nothing. Wall lines are now measured by
+     centre-line length (see wall-geometry.test.js); a LINE that no rule
+     consumes still surfaces through boq.unclassified rather than vanishing. */
+  const lines = ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES'];
+  for (const [x1, y1, x2, y2] of [[0, 0, 6000, 0], [6000, 0, 6000, 4000], [6000, 4000, 0, 4000], [0, 4000, 0, 0]]) {
     lines.push('0', 'LINE', '8', 'A-WALL', '10', String(x1), '20', String(y1), '11', String(x2), '21', String(y2));
   }
   lines.push('0', 'ENDSEC', '0', 'EOF');
-  const document = { id: 'src_0001', version: 1, filename: 'lines.dxf', sourceSheet: 'A', fallbackUnit: 'mm', content: `${lines.join('\n')}\n` };
+  const document = { id: 'src_0001', version: 1, filename: 'lines.dxf', sourceSheet: 'A', content: `${lines.join('\n')}\n` };
   const { document: parsed, units, versions } = inspectDxf(document);
   const boq = measureDxf(document, units, parsed, { versions, runId: 'run_0001' });
 
-  const reported = boq.unclassified.filter((entry) => entry.type === 'LINE');
-  assert.equal(reported.length, 2, 'both lines are reported rather than vanishing');
-  assert.equal(reported[0].kind, 'unmeasured-geometry', 'a wall drawn as a line is geometry, not an annotation');
-  assert.match(reported[0].reason, /LINE/);
+  // 6 m x 4 m room, wall run 20 m: the lines produce a real wall quantity
+  const wall = boq.lines.find((line) => line.measurement === 'wall_plan');
+  assert.equal(wall.measurementStatus, 'measured', 'the wall lines are measured, not thrown away');
+  assert.equal(Number(wall.quantity.toFixed(6)), 4.6, '20 m run x 0.23 thickness');
+  assert.equal(boq.unclassified.filter((entry) => entry.type === 'LINE').length, 0, 'nothing is left unclassified because everything was measured');
+});
 
-  const run = { id: 'run_0001', projectId: 'p', sourceDocumentId: 's', boq, residuals: [], pages: [] };
-  const blocking = exceptionsForRun(run).filter((exception) => exception.type === 'unmeasured_geometry');
-  assert.ok(blocking.length > 0 && blocking[0].severity === 'blocking',
-    'and a BOQ missing its walls cannot be approved');
+test('a LINE on a non-measured layer still surfaces rather than vanishing', () => {
+  const lines = ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES',
+    '0', 'LINE', '8', 'A-GRID', '10', '0', '20', '0', '11', '5000', '21', '0',
+    '0', 'ENDSEC', '0', 'EOF'];
+  const document = { id: 'src_0001', version: 1, filename: 'grid.dxf', sourceSheet: 'A', content: `${lines.join('\n')}\n` };
+  const { document: parsed, units, versions } = inspectDxf(document);
+  const boq = measureDxf(document, units, parsed, { versions, runId: 'run_0001' });
+  const reported = boq.unclassified.filter((entry) => entry.type === 'LINE');
+  assert.equal(reported.length, 1, 'a line no rule measured is reported, not silently dropped');
+  assert.equal(reported[0].kind, 'unmeasured-geometry');
 });

@@ -72,13 +72,15 @@ function openings(context) {
 
 const RULES = Object.freeze({
   'dxf-wall-plan-v1': {
-    id: 'dxf-wall-plan-v1', measurement: 'wall_plan', label: 'Wall footprint (plan)', unit: 'm²', evidence: ['layer', 'hatch'],
-    compute: (context) => context.walls.map((entity) => ({ entity, sign: 'add', quantity: context.areaOf(entity) }))
+    id: 'dxf-wall-plan-v1', measurement: 'wall_plan', label: 'Wall footprint (plan)', unit: 'm²', evidence: ['layer', 'geometry'],
+    /* Footprint = centre-line length x thickness. For a HATCH this equals its
+       filled area exactly, so hatch-drawn walls are unchanged. */
+    compute: (context) => context.walls.map((entity) => ({ entity, sign: 'add', quantity: context.wallLengthOf(entity) * context.assumptions.wallThickness }))
   },
   'dxf-wall-masonry-v1': {
     id: 'dxf-wall-masonry-v1', measurement: 'wall_masonry', label: 'Wall masonry volume', unit: 'm³', evidence: ['layer', 'hatch'],
     compute: (context) => {
-      const added = context.walls.map((entity) => ({ entity, sign: 'add', quantity: context.areaOf(entity) * context.assumptions.wallHeight }));
+      const added = context.walls.map((entity) => ({ entity, sign: 'add', quantity: context.wallLengthOf(entity) * context.assumptions.wallThickness * context.assumptions.wallHeight }));
       /* Whether an opening is a void in the masonry or is ignored as a minor
          item is a measurement convention that differs between practices, so it
          is a ruleset setting rather than a decision baked into this function. */
@@ -90,8 +92,7 @@ const RULES = Object.freeze({
   'dxf-wall-plaster-v1': {
     id: 'dxf-wall-plaster-v1', measurement: 'wall_plaster', label: 'Wall plaster (both faces)', unit: 'm²', evidence: ['layer', 'hatch'],
     compute: (context) => {
-      const centreLength = (entity) => context.areaOf(entity) / context.assumptions.wallThickness;
-      const added = context.walls.map((entity) => ({ entity, sign: 'add', quantity: centreLength(entity) * 2 * context.assumptions.wallHeight }));
+      const added = context.walls.map((entity) => ({ entity, sign: 'add', quantity: context.wallLengthOf(entity) * 2 * context.assumptions.wallHeight }));
       if (!context.settings.deductOpeningsFromPlaster) return added;
       /* Plaster is measured to both faces, so an opening removes its area twice. */
       const deducted = openings(context).map(({ entity, area }) => ({ entity, sign: 'deduct', quantity: area * 2 }));

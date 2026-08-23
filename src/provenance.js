@@ -93,7 +93,8 @@ function createSourceObject(input) {
     rotation: input.rotation ?? null,
     nativeHandle: input.nativeHandle ?? null,
     handleSource: input.handleSource ?? 'file',
-    regionId: input.regionId ?? null
+    regionId: input.regionId ?? null,
+    wallGeometry: input.wallGeometry ?? null
   };
 }
 
