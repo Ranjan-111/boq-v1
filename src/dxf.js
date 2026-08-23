@@ -135,7 +135,7 @@ function measureDxf(sourceDocument, units, parsedDocument, {
     });
   }
   for (const entity of document.entities) {
-    if (!['HATCH', 'LWPOLYLINE', 'INSERT'].includes(entity.type)) continue;
+    if (!VALIDATED_ENTITY_TYPES.includes(entity.type)) continue;
     if (consumed.has(entity)) continue;
     const category = layerCategory(entity.layer) || blockCategory(entity.block);
     const object = register(entity);
@@ -146,7 +146,7 @@ function measureDxf(sourceDocument, units, parsedDocument, {
       layer: entity.layer,
       block: entity.block || null,
       category: category || null,
-      kind: 'unrecognised',
+      kind: 'unmeasured-geometry',
       reason: category
         ? `Recognised as ${category} but no rule in ${ruleset.version} measures a ${entity.type} for it; it may be exploded or drawn as bare geometry.`
         : 'Neither the layer name nor a block name identifies what this is, so no rule could measure it.'
@@ -395,7 +395,11 @@ function readEntity(type, groups, fallbackHandle = '') {
   if (['HATCH', 'LWPOLYLINE', 'INSERT'].includes(type) && (!entity.handle || !entity.layer)) throw malformedEntityError(type, entity.handle);
   if (type === 'INSERT' && !entity.block) throw malformedEntityError(type, entity.handle, 'its block reference is missing');
   if (type === 'INSERT' && /XREF|EXTERNAL|REFERENCE/i.test(entity.block)) throw externalReferenceError(entity.block);
-  return ['HATCH', 'LWPOLYLINE', 'INSERT'].includes(type) ? entity : null;
+  /* Every entity that got this far is returned. LINE used to be validated --
+     strictly enough that a malformed one rejected the whole drawing -- and then
+     discarded here, so a valid one was silently thrown away and a drawing whose
+     walls are drawn as lines measured nothing without saying why. */
+  return entity;
 }
 
 function layerCategory(layer = '') {

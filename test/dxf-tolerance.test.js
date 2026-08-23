@@ -125,3 +125,28 @@ test('a drawing carrying every trait that broke real files still ingests', () =>
   assert.ok(raised.some((exception) => exception.type === 'unmeasured_geometry' && exception.severity === 'blocking'),
     'and the geometry we could not read still blocks approval');
 });
+
+test('a LINE entity is never silently discarded', () => {
+  /* Regression: LINE was in VALIDATED_ENTITY_TYPES, so a malformed one could
+     reject the whole drawing, but readEntity then returned null for it -- so a
+     valid LINE was validated and thrown away. A drawing whose walls are drawn
+     as lines measured nothing at all, and said nothing about why. */
+  const lines = ['0', 'SECTION', '2', 'ENTITIES'];
+  for (const [x1, y1, x2, y2] of [[0, 0, 6000, 0], [6000, 0, 6000, 4000]]) {
+    lines.push('0', 'LINE', '8', 'A-WALL', '10', String(x1), '20', String(y1), '11', String(x2), '21', String(y2));
+  }
+  lines.push('0', 'ENDSEC', '0', 'EOF');
+  const document = { id: 'src_0001', version: 1, filename: 'lines.dxf', sourceSheet: 'A', fallbackUnit: 'mm', content: `${lines.join('\n')}\n` };
+  const { document: parsed, units, versions } = inspectDxf(document);
+  const boq = measureDxf(document, units, parsed, { versions, runId: 'run_0001' });
+
+  const reported = boq.unclassified.filter((entry) => entry.type === 'LINE');
+  assert.equal(reported.length, 2, 'both lines are reported rather than vanishing');
+  assert.equal(reported[0].kind, 'unmeasured-geometry', 'a wall drawn as a line is geometry, not an annotation');
+  assert.match(reported[0].reason, /LINE/);
+
+  const run = { id: 'run_0001', projectId: 'p', sourceDocumentId: 's', boq, residuals: [], pages: [] };
+  const blocking = exceptionsForRun(run).filter((exception) => exception.type === 'unmeasured_geometry');
+  assert.ok(blocking.length > 0 && blocking[0].severity === 'blocking',
+    'and a BOQ missing its walls cannot be approved');
+});
