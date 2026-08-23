@@ -172,7 +172,10 @@ test('malformed LINE entities fail while valid unsupported LINE entities remain 
   assert.ok(validRun.boq);
 });
 
-test('malformed CIRCLE entities fail as unsupported or unvalidated', async () => {
+test('an unmeasurable CIRCLE is reported rather than failing the drawing', async () => {
+  /* Contract changed deliberately: refusing every drawing containing an entity
+     we cannot measure meant refusing every real architectural drawing. The
+     safety intent is kept downstream -- see the blocking assertion below. */
   const malformed = cleanPlan.replace(
     '0\nENDSEC\n0\nEOF\n',
     '0\nCIRCLE\n5\nBAD-CIRCLE\n8\nA-WALL\n10\nnot-a-number\n20\n0\n40\n100\n0\nENDSEC\n0\nEOF\n'
@@ -181,15 +184,16 @@ test('malformed CIRCLE entities fail as unsupported or unvalidated', async () =>
   assert.equal(response.status, 202);
   const run = await waitForRun((await response.json()).processingRun.id);
 
-  assert.equal(run.status, 'failed');
-  assert.equal(run.boq, null);
-  assert.match(run.error, /CIRCLE/);
-  assert.match(run.error, /unsupported|unvalidated/i);
-  assert.match(run.error, /malformed-circle\.dxf/);
-  assert.match(run.error, /native DXF|simplif/i);
+  assert.equal(run.status, 'completed', 'the rest of the drawing still measures');
+  assert.equal(run.boq.lines.find((line) => line.measurement === 'floor_area').quantity, 27.72);
+  const reported = run.boq.unclassified.filter((entry) => entry.type === 'CIRCLE');
+  assert.equal(reported.length, 1, 'and the circle is reported, never silently dropped');
+  assert.equal(reported[0].kind, 'unmeasured-geometry');
 });
 
-test('syntactically plausible unsupported CIRCLE entities cannot complete', async () => {
+test('unmeasured geometry blocks approval, so a short BOQ cannot ship', async () => {
+  /* This is where the old "cannot complete" guarantee now lives: the drawing
+     ingests, but a BOQ that ignored real geometry cannot be approved. */
   const plausible = cleanPlan.replace(
     '0\nENDSEC\n0\nEOF\n',
     '0\nCIRCLE\n5\nGOOD-CIRCLE\n8\nA-WALL\n10\n0\n20\n0\n40\n100\n0\nENDSEC\n0\nEOF\n'
@@ -197,13 +201,15 @@ test('syntactically plausible unsupported CIRCLE entities cannot complete', asyn
   const response = await uploadDrawing(plausible, 'unsupported-circle.dxf');
   assert.equal(response.status, 202);
   const run = await waitForRun((await response.json()).processingRun.id);
+  assert.equal(run.status, 'completed');
 
-  assert.equal(run.status, 'failed');
-  assert.equal(run.boq, null);
-  assert.match(run.error, /CIRCLE/);
-  assert.match(run.error, /unsupported|unvalidated/i);
-  assert.match(run.error, /unsupported-circle\.dxf/);
-  assert.match(run.error, /native DXF|simplif/i);
+  const { createApplication } = require('../src/application');
+  const { exceptionsForRun } = require('../src/exceptions');
+  const raised = exceptionsForRun({ id: run.id, projectId: null, sourceDocumentId: null, boq: run.boq, residuals: [], pages: [] })
+    .filter((exception) => exception.type === 'unmeasured_geometry');
+  assert.ok(raised.length > 0, 'the circle raises an exception');
+  assert.equal(raised[0].severity, 'blocking');
+  assert.ok(raised[0].blocks.includes('approval') && raised[0].blocks.includes('export'));
 });
 
 test('missing external references fail with affected source and re-export guidance', async () => {

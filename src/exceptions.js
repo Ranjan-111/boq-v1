@@ -19,6 +19,11 @@ const SEVERITIES = Object.freeze({
      identity needed to price it, so this blocks pricing, not measurement. */
   unidentified_symbol: { severity: 'advisory', blocks: ['pricing'] },
   unclassified_geometry: { severity: 'advisory', blocks: ['completeness'] },
+  /* Geometry the parser could not measure at all. A circle on a wall layer may
+     be a column; a BOQ that ignored it would be short, so this blocks. An
+     annotation is reported as unclassified_geometry instead, because a label
+     cannot change a quantity. */
+  unmeasured_geometry: { severity: 'blocking', blocks: ['approval', 'export'] },
   low_confidence: { severity: 'advisory', blocks: ['review'] },
   /* Raised by the pricing layer rather than by a run: a rate outside its
      validity window must never quietly price a BOQ. */
@@ -106,11 +111,15 @@ function exceptionsForRun(run) {
   }
 
   for (const entry of run.boq?.unclassified || []) {
-    out.push(makeException({ ...base, type: 'unclassified_geometry', anchor: entry.handle || entry.sourceObjectId,
+    /* Split on whether the omission could have carried a quantity. */
+    const type = entry.kind === 'unmeasured-geometry' ? 'unmeasured_geometry' : 'unclassified_geometry';
+    out.push(makeException({ ...base, type, anchor: entry.handle || entry.sourceObjectId,
       sourceObjectId: entry.sourceObjectId, measurement: null,
-      groupKey: `unclassified_geometry:${entry.layer || 'unknown'}:${entry.type || 'geometry'}`,
+      groupKey: `${type}:${entry.layer || 'unknown'}:${entry.type || 'geometry'}`,
       impact: { quantity: null, unit: null },
-      title: `Geometry on ${entry.layer || 'an unnamed layer'} could not be used`,
+      title: entry.kind === 'annotation'
+        ? `${entry.type || 'An annotation'} on ${entry.layer || 'an unnamed layer'} was not measured`
+        : `${entry.type || 'Geometry'} on ${entry.layer || 'an unnamed layer'} could not be measured`,
       raisedBecause: entry.reason || 'No rule could measure this geometry, so it contributes nothing to the BOQ.',
       resolutionOptions: [
         { action: 'classify_geometry', label: 'Say what this geometry is so a rule can measure it' },

@@ -4,6 +4,11 @@ const { getRuleset, getRule, normalizeAssumptions, checkPlausibility, DEFAULT_RU
 const EXTERNAL_REFERENCE_ENTITY_TYPES = Object.freeze(['XREF', 'IMAGE', 'PDFUNDERLAY', 'DGNUNDERLAY']);
 const EXTERNAL_REFERENCE_BLOCK_FLAGS = 4 | 8;
 const VALIDATED_ENTITY_TYPES = Object.freeze(['HATCH', 'LWPOLYLINE', 'INSERT', 'LINE']);
+/* Entities that carry no quantity by nature. A room label or a dimension string
+   cannot become a BOQ line, so omitting one cannot make a BOQ short. */
+const ANNOTATION_ENTITY_TYPES = Object.freeze([
+  'TEXT', 'MTEXT', 'ATTDEF', 'ATTRIB', 'DIMENSION', 'LEADER', 'MLEADER', 'TOLERANCE', 'VIEWPORT'
+]);
 const UNIT_DEFINITIONS = Object.freeze({
   4: Object.freeze({ code: 4, name: 'millimetres', symbol: 'mm', toMetres: 0.001 }),
   5: Object.freeze({ code: 5, name: 'centimetres', symbol: 'cm', toMetres: 0.01 }),
@@ -69,7 +74,8 @@ function measureDxf(sourceDocument, units, parsedDocument, {
       coordinateSpace: 'dxf',
       geometry,
       geometryResolution,
-      nativeHandle: entity.handle
+      nativeHandle: entity.handle,
+      handleSource: entity.handleSource || 'file'
     });
     sourceObjects.set(object.sourceObjectId, object);
     objectByEntity.set(entity, object);
@@ -112,6 +118,22 @@ function measureDxf(sourceDocument, units, parsedDocument, {
      meaning, still contains that geometry -- silently discarding it is how a BOQ
      ends up confidently short. */
   const unclassified = [];
+  /* Entities the parser could not measure at all. Reported here rather than
+     dropped, exactly as unusable-but-recognised geometry already is. */
+  for (const entity of document.skipped || []) {
+    unclassified.push({
+      sourceObjectId: `${sourceDocument.id}:v${sourceDocument.version}:dxf:${entity.handle}`,
+      handle: entity.handle,
+      type: entity.type,
+      layer: entity.layer || null,
+      block: entity.block || null,
+      category: null,
+      kind: entity.kind,
+      reason: entity.kind === 'annotation'
+        ? `${entity.type} is an annotation (a label or dimension string). It carries no quantity, so nothing is missing from the BOQ because of it.`
+        : `${entity.type} geometry is not measured by any rule, so anything it represents is absent from the BOQ. Check whether it should have been billed.`
+    });
+  }
   for (const entity of document.entities) {
     if (!['HATCH', 'LWPOLYLINE', 'INSERT'].includes(entity.type)) continue;
     if (consumed.has(entity)) continue;
@@ -124,6 +146,7 @@ function measureDxf(sourceDocument, units, parsedDocument, {
       layer: entity.layer,
       block: entity.block || null,
       category: category || null,
+      kind: 'unrecognised',
       reason: category
         ? `Recognised as ${category} but no rule in ${ruleset.version} measures a ${entity.type} for it; it may be exploded or drawn as bare geometry.`
         : 'Neither the layer name nor a block name identifies what this is, so no rule could measure it.'
@@ -166,7 +189,10 @@ function parseDxf(content) {
   const groups = [];
   const lines = String(content).split(/\r\n|\r|\n/);
   while (lines.at(-1) === '') lines.pop();
-  if (lines.length % 2 !== 0) throw new InputError('Malformed DXF group structure; re-export the affected drawing as a native DXF.');
+  /* A file that ends on a bare group code has lost only its terminator. The
+     section-integrity check below still catches real truncation, so dropping a
+     dangling code reads the drawing rather than refusing it over a missing EOF. */
+  if (lines.length % 2 !== 0) lines.pop();
   for (let index = 0; index < lines.length; index += 2) {
     const rawCode = lines[index].trim();
     if (!/^[+-]?\d+$/.test(rawCode)) throw new InputError(`Malformed DXF group code "${rawCode}"; re-export the affected drawing as a native DXF.`);
@@ -176,6 +202,8 @@ function parseDxf(content) {
   let insunitsInvalid = null;
   let insunitsPresent = false;
   const entities = [];
+  const skipped = [];
+  let entityOrdinal = 0;
   let section = null;
   const blocks = {};
   let currentBlock = null;
@@ -236,8 +264,10 @@ function parseDxf(content) {
     if (section === 'ENTITIES' && code === 0) {
       let end = index + 1;
       while (end < groups.length && groups[end][0] !== 0) end += 1;
-      const entity = readEntity(value, groups.slice(index + 1, end));
-      if (entity) entities.push(entity);
+      entityOrdinal += 1;
+      const entity = readEntity(value, groups.slice(index + 1, end), `syn${String(entityOrdinal).padStart(4, '0')}`);
+      if (entity && entity.skipped) skipped.push(entity);
+      else if (entity) entities.push(entity);
       index = end;
       continue;
     }
@@ -245,7 +275,7 @@ function parseDxf(content) {
   }
   if (section || !sawEntities || !sawEndsec) throw new InputError('Malformed DXF sections; re-export the affected drawing as a native DXF.');
   if (!sawHeader || !insunitsPresent) { insunits = null; insunitsInvalid = null; }
-  return { format: 'dxf', insunits, insunitsInvalid, entities, blocks };
+  return { format: 'dxf', insunits, insunitsInvalid, entities, skipped, blocks };
 }
 
 function readBlockHeader(groups) {
@@ -298,11 +328,33 @@ function inspectBlock(groups) {
   if (Number.isInteger(flags) && (flags & EXTERNAL_REFERENCE_BLOCK_FLAGS)) throw externalReferenceError(`block ${name}, flags ${flags}`);
 }
 
-function readEntity(type, groups) {
+function readEntity(type, groups, fallbackHandle = '') {
   const group = (code) => groups.find(([groupCode]) => groupCode === code)?.[1] || '';
-  const entity = { type, handle: group(5), layer: group(8), block: group(2), points: [] };
+  /* Handles are optional in older DXF revisions and plenty of exporters omit
+     them. We need a stable identity for provenance, so one is synthesized from
+     the entity's position in the file -- deterministic, so a reprocess of the
+     same bytes yields the same sourceObjectId. */
+  const fileHandle = group(5);
+  const entity = {
+    type, handle: fileHandle || fallbackHandle, layer: group(8), block: group(2), points: [],
+    handleSource: fileHandle ? 'file' : 'synthesized'
+  };
+  /* An external reference means the geometry lives outside this file, so what
+     we measured would be silently incomplete. That still refuses. */
   if (EXTERNAL_REFERENCE_ENTITY_TYPES.includes(type)) throw externalReferenceError(type);
-  if (!VALIDATED_ENTITY_TYPES.includes(type)) throw unsupportedEntityError(type);
+  /* Everything else we cannot measure is skipped and REPORTED rather than
+     failing the drawing. Refusing every file containing a TEXT label meant
+     refusing every real architectural drawing, which has no safety value --
+     the operator simply goes back to manual takeoff. The safety intent is kept
+     downstream: unmeasured geometry raises a blocking exception, so a BOQ that
+     ignored something cannot be approved or exported. */
+  if (!VALIDATED_ENTITY_TYPES.includes(type)) {
+    return {
+      ...entity,
+      skipped: true,
+      kind: ANNOTATION_ENTITY_TYPES.includes(type) ? 'annotation' : 'unmeasured-geometry'
+    };
+  }
   for (const [code, value] of groups) if (code >= 10 && code <= 59 && value !== '' && !Number.isFinite(Number(value))) throw malformedEntityError(type, entity.handle);
   if (type === 'LINE') {
     const requiredCoordinates = [10, 20, 11, 21];
@@ -314,7 +366,17 @@ function readEntity(type, groups) {
       if (code === 10) { if (x !== null) throw malformedEntityError(type, entity.handle); x = Number(value); if (!Number.isFinite(x)) throw malformedEntityError(type, entity.handle); }
       if (code === 20) { const y = Number(value); if (x === null || !Number.isFinite(y)) throw malformedEntityError(type, entity.handle); entity.points.push([x, y]); x = null; }
     }
-    if (x !== null || entity.points.length < 3) throw malformedEntityError(type, entity.handle);
+    /* A dangling x with no y IS corrupt. But a polyline with one or two
+       vertices is perfectly valid DXF -- an open segment, common on dimension
+       and centre-line layers. It simply encloses no area, so it is reported as
+       unmeasured geometry rather than failing the drawing. */
+    if (x !== null) throw malformedEntityError(type, entity.handle);
+    if (entity.points.length < 3) {
+      return {
+        ...entity, skipped: true, kind: 'unmeasured-geometry',
+        reason: `${type} has ${entity.points.length} vertex point(s), so it encloses no area.`
+      };
+    }
   }
   if (type === 'INSERT') {
     /* Insertion point (10/20) plus the placement transform: scale (41/42) and

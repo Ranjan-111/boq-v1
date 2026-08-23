@@ -16,6 +16,20 @@ never be reported as a satisfied one.
 
 ## Carried limitations
 
+- **Walls are only measured from HATCH entities.** Many real drawings draw walls as
+  closed LWPOLYLINEs or as pairs of LINEs, so a drawing can now ingest cleanly and still
+  measure almost nothing -- `Gplus2_combined_layers_fixed.dxf` ingests and measures 3 of
+  9 lines for exactly this reason. This is the next blocker after ingestion and is a
+  measurement-rule question, not a parser one.
+- **DWG is not supported and is what most sample drawings are.** DWG is a closed binary
+  format; reading it needs a third-party library (LibreDWG, ODA File Converter) or a
+  server-side conversion step. Nothing in this repository reads it.
+- **The OCR crop is specified by typing x/y/width/height.** There is no way to draw the
+  crop on the image, which makes the feature effectively unusable, and a mis-typed crop
+  returns "Malformed OCR polygon or empty text" with no guidance.
+- **Raster calibration always asks for two points and a distance**, even when the sheet
+  carries a printed scale bar or a dimension string that OCR could read first.
+
 - **Serverless hosting loses state between instances.** The application keeps its
   SQLite database in memory (`file: ':memory:'`) and its working set in the process, so
   on Vercel a warm function instance behaves correctly and a cold start or a second
