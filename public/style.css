@@ -295,7 +295,8 @@ a:hover { text-decoration: underline; }
   padding: var(--s-xxl);
 }
 
-.view { display: block; max-width: var(--container); margin: 0 auto; }
+/* Router toggles hidden; [hidden] above has !important, so this only hits visible views. */
+.view:not([hidden]) { display: block; max-width: var(--container); margin: 0 auto; }
 
 .view-header { margin-bottom: var(--s-xl); }
 .view-header h2 { font-size: 44px; font-weight: 500; line-height: 1; margin-bottom: var(--s-sm); }

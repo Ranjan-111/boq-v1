@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css" media="print" onload="this.media='all'">
     <noscript><link rel="stylesheet" href="/style.css"></noscript>
-    <style>/* Critical: hide non-active views before CSS loads, so the first paint is clean */.view{display:none}.view.active{display:block}</style>
+    <style>/* Critical: hide non-active views before CSS loads, so the first paint is clean */.view[data-view]{display:none}.view[data-view]:not([hidden]){display:block}</style>
   </head>
   <body>
     <div class="app">
