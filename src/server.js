@@ -29,7 +29,7 @@ const OCR_ASSETS = Object.freeze({
   '/ocr/vendor/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz': { file: 'node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz', contentType: 'application/gzip', trainedDataSha256: '45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91' }
 });
 
-const FRONTEND_MODULES = new Set(['/js/app.mjs', '/js/api.mjs', '/js/store.mjs', '/js/render.mjs', '/js/router.mjs', '/js/raster.mjs']);
+const FRONTEND_MODULES = new Set(['/js/app.mjs', '/js/api.mjs', '/js/store.mjs', '/js/render.mjs', '/js/router.mjs', '/js/raster.mjs', '/js/drawing-viewer.mjs']);
 
 /* A hash of the frontend the server is serving. Stamped into index.html and
    returned by /api/build so the two can be compared. */
