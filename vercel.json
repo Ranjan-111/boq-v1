@@ -1,5 +1,6 @@
 {
   "rewrites": [
-    { "source": "/((?!js/|ocr/|pdfjs/|style\.css|app\.js|favicon).*)", "destination": "/api/index" }
+    { "handle": "filesystem" },
+    { "source": "/(.*)", "destination": "/api/index" }
   ]
 }
