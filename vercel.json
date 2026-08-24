@@ -1,12 +1,5 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": {
-    "api/index.js": {
-      "includeFiles": "{public/**,node_modules/pdfjs-dist/build/**,node_modules/@tesseract.js-data/**}",
-      "maxDuration": 60
-    }
-  },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+    { "source": "/((?!js/|ocr/|pdfjs/|style\.css|app\.js|favicon).*)", "destination": "/api/index" }
   ]
 }

@@ -8,7 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="/style.css"></noscript>
+    <style>/* Critical: hide non-active views before CSS loads, so the first paint is clean */.view{display:none}.view.active{display:block}</style>
   </head>
   <body>
     <div class="app">
@@ -387,12 +389,32 @@
     <div id="toast-container"></div>
 
     <!-- Scripts -->
-    <script src="/ocr/model-cache.js" defer></script>
-    <script src="/ocr/normalize.js" defer></script>
-    <script src="/ocr/vendor/tesseract.js/dist/tesseract.min.js" defer></script>
-    <script src="/ocr/tesseract.js" defer></script>
-    <script src="/ocr/paddle.js" defer></script>
-    <script src="/ocr/engine.js" defer></script>
     <script type="module" src="/js/app.mjs"></script>
+    <!-- OCR scripts load lazily when the Raster/OCR view is opened, so they
+         never block first paint. -->
+    <script>
+      (function() {
+        var loaded = false;
+        var observer = new MutationObserver(function() {
+          if (loaded) return;
+          var view = document.querySelector('#view-raster');
+          if (view && view.classList.contains('active') && !view.hidden) {
+            loaded = true;
+            observer.disconnect();
+            var sources = [
+              '/ocr/model-cache.js', '/ocr/normalize.js',
+              '/ocr/vendor/tesseract.js/dist/tesseract.min.js',
+              '/ocr/tesseract.js', '/ocr/paddle.js', '/ocr/engine.js'
+            ];
+            sources.forEach(function(src) {
+              var s = document.createElement('script');
+              s.src = src; s.async = true;
+              document.body.appendChild(s);
+            });
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class','hidden'] });
+      })();
+    </script>
   </body>
 </html>
