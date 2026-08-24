@@ -282,37 +282,33 @@ export function createDrawingViewer(canvasElement, { margin = 40 } = {}) {
     view = { minX: before.x + (view.minX - before.x) * factor, minY: before.y + (view.minY - before.y) * factor, maxX: before.x + (view.maxX - before.x) * factor, maxY: before.y + (view.maxY - before.y) * factor };
     render();
   }, { passive: false });
-const fs = require('fs');
-const NL = String.fromCharCode(10);
-const L = [];
-const push = (s) => L.push(s);
-push("");
-push("  /* Click: find nearest source object and emit. */");
-push("  canvas.addEventListener('click', (e) => {");
-push("    const rect = canvas.getBoundingClientRect();");
-push("    const px = e.clientX - rect.left, py = e.clientY - rect.top;");
-push("    let best = null; let bestDist = Infinity;");
-push("    for (const o of objects) {");
-push("      if (!Array.isArray(o.bounds)) continue;");
-push("      const [a, b, c, d] = o.bounds;");
-push("      const cx = (a + c) / 2, cy = (b + d) / 2;");
-push("      const p = worldToScreen(cx, cy);");
-push("      const dist = Math.hypot(p.x - px, p.y - py);");
-push("      if (dist < 24 && dist < bestDist) { best = o; bestDist = dist; }");
-push("    }");
-push("    if (best) emit('select', best);");
-push("  });");
-push("");
-push("  /* Resize handling. */");
-push("  window.addEventListener('resize', () => render());");
-push("");
-push("  return {");
-push("    load, focusOn, setView, fitAll, render, on,");
-push("    setRelated(ids) { relatedIds = new Set([...ids]); },");
-push("    setSelected(ids) { selectedIds = new Set([...ids]); },");
-push("    setUnresolved(ids) { unresolvedIds = new Set([...ids]); },");
-push("    get view() { return { ...view }; },");
-push("    get objectCount() { return objects.length; }");
-push("  };");
-push("}");
+
+  /* Click: find the nearest source object to the click and emit it, so the
+     workspace can show what that piece of geometry feeds. */
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    let best = null; let bestDist = Infinity;
+    for (const o of objects) {
+      if (!Array.isArray(o.bounds)) continue;
+      const [a, b, c, d] = o.bounds;
+      const cx = (a + c) / 2, cy = (b + d) / 2;
+      const p = worldToScreen(cx, cy);
+      const dist = Math.hypot(p.x - px, p.y - py);
+      if (dist < 24 && dist < bestDist) { best = o; bestDist = dist; }
+    }
+    if (best) emit('select', best);
+  });
+
+  /* Resize handling. */
+  window.addEventListener('resize', () => render());
+
+  return {
+    load, focusOn, setView, fitAll, render, on,
+    setRelated(ids) { relatedIds = new Set([...ids]); },
+    setSelected(ids) { selectedIds = new Set([...ids]); },
+    setUnresolved(ids) { unresolvedIds = new Set([...ids]); },
+    get view() { return { ...view }; },
+    get objectCount() { return objects.length; }
+  };
 }
