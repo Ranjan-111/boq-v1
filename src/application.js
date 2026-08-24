@@ -11,7 +11,7 @@ const { createRepository } = require('./repository');
 const { createVisionService, residualsFor, splitCounts } = require('./vision');
 const { coerceBoxes, boxToPolygon } = require('./vision/contract');
 const { exceptionsForRun, groupExceptions, createImpactRanker } = require('./exceptions');
-const { createRateBook, priceLine, totalOf, isStale, findRate, RateError } = require('./rates');
+const { createRateBook, priceLine, totalOf, isStale, findRate, DEFAULT_RATE_BOOK, RateError } = require('./rates');
 const { createVendorOffer, eligibleOffers, VendorError } = require('./vendors');
 const { createCatalogue, applyCatalogue, itemsFor, CatalogueError } = require('./catalogue');
 const { buildArtefact, encode, encodeProvenance, tierOf, ExportError, FORMATS } = require('./export');
@@ -1049,8 +1049,12 @@ function createApplication({ schedule = setTimeout, file = ':memory:', repositor
 
   function currentRateBook(projectId, version = null) {
     const books = rateBooksFor(projectId);
-    if (!books.length) return null;
     if (version !== null) return books.find((book) => book.version === version) || null;
+    /* With no studio-published book, the built-in indicative default applies:
+       real amounts from a labelled source, so an export has figures -- clearly
+       marked as system defaults, never as a quotation. A published book always
+       overrides it, and the default is never stored in the project's history. */
+    if (!books.length) return DEFAULT_RATE_BOOK;
     return books.reduce((latest, book) => (book.version > latest.version ? book : latest), books[0]);
   }
 

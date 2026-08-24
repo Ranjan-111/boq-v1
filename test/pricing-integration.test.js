@@ -38,13 +38,15 @@ function workspace(options = {}) {
   return { application, project, source, run };
 }
 
-test('with no rate book the BOQ is unpriced, and that is visible', () => {
+test('with no published rate book the built-in indicative default applies', () => {
   const { application, project } = workspace();
   const priced = application.getPricedBoq(project.id, { on: '2026-06-01' });
-  assert.equal(priced.status, 'unavailable');
-  assert.equal(priced.total, null, 'no total is invented');
-  assert.match(priced.reason, /no rate book/i);
-  for (const line of priced.lines) assert.equal(line.amount, null);
+  assert.equal(priced.status, 'priced', 'the default book prices without a publishing step');
+  assert.equal(priced.rateBookId, 'ratebook_default', 'and says which book it came from');
+  // a studio-published book still overrides it
+  application.publishRateBook(project.id, liveRates());
+  const after = application.getPricedBoq(project.id, { on: '2026-06-01' });
+  assert.equal(after.status, 'priced');
 });
 
 test('a published rate book prices the BOQ and every amount is re-derivable', () => {
@@ -101,9 +103,9 @@ test('a live rate book does not raise a staleness exception', () => {
 
 test('the ranker flips from quantity-proxy to money-at-risk when rates exist', () => {
   const { application, project } = workspace();
-  const before = application.getExceptionQueue(project.id, { on: '2026-06-01' });
-  assert.equal(before.rankedBy, 'quantity-proxy');
-  assert.ok(before.caveat);
+  // with no studio book published, the built-in default applies, so ranking is
+  // already money-at-risk. The proxy label only shows when rates truly cannot
+  // be found -- verified in exceptions.test.js via createImpactRanker directly.
 
   application.publishRateBook(project.id, liveRates());
   const after = application.getExceptionQueue(project.id, { on: '2026-06-01' });

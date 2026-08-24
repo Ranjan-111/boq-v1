@@ -10,6 +10,7 @@
    state, not zero, and it is distinguishable from a genuinely free item -- the
    same discipline as not_measurable versus measured_zero, applied to money. */
 
+
 class RateError extends Error {}
 
 const PRICING_STATUSES = Object.freeze([
@@ -158,4 +159,28 @@ function totalOf(pricedLines = []) {
   };
 }
 
-module.exports = { createRateBook, priceLine, totalOf, roundMoney, isStale, isNotYetValid, findRate, normaliseLocality, localityMatches, LOCALITY_ALIASES, RateError, PRICING_STATUSES };
+/* Built-in indicative rates for the standard catalogue items. These exist so
+   a measured drawing produces an export with figures -- clearly labelled as
+   system defaults from 'system-default', never as a quotation. They are NOT a
+   market feed and carry no authority: a studio's own published rate book always
+   overrides them wholesale. */
+const DEFAULT_RATE_BOOK = createRateBook({
+  id: 'ratebook_default', studioId: 'system', version: 1,
+  label: 'Default indicative rates (not a quotation)',
+  currency: 'INR', locality: null, kind: 'indicative-default',
+  source: { label: 'System default indicative rates - not a quotation', suppliedBy: 'system-default' },
+  rates: [
+    { itemCode: 'WALL-PLAN', unit: 'm²', amount: 950, validFrom: '2026-01-01', validTo: '2027-12-31' },
+    { itemCode: 'WALL-MAS', unit: 'm³', amount: 6200, validFrom: '2026-01-01', validTo: '2027-12-31' },
+    { itemCode: 'WALL-PLAS', unit: 'm²', amount: 420, validFrom: '2026-01-01', validTo: '2027-12-31' },
+    { itemCode: 'FLOOR-FIN', unit: 'm²', amount: 1800, validFrom: '2026-01-01', validTo: '2027-12-31' },
+    { itemCode: 'SKIRTING', unit: 'm', amount: 260, validFrom: '2026-01-01', validTo: '2027-12-31' },
+    { itemCode: 'ROOM-CNT', unit: 'nos', amount: 0, validFrom: '2026-01-01', validTo: '2027-12-31' },
+    { itemCode: 'DOOR-CNT', unit: 'nos', amount: 12500, validFrom: '2026-01-01', validTo: '2027-12-31' },
+    { itemCode: 'WIN-CNT', unit: 'nos', amount: 9800, validFrom: '2026-01-01', validTo: '2027-12-31' },
+    { itemCode: 'FURN-CNT', unit: 'nos', amount: 0, validFrom: '2026-01-01', validTo: '2027-12-31' }
+  ]
+});
+
+
+module.exports = { createRateBook, priceLine, totalOf, roundMoney, isStale, isNotYetValid, findRate, normaliseLocality, localityMatches, LOCALITY_ALIASES, DEFAULT_RATE_BOOK, RateError, PRICING_STATUSES };

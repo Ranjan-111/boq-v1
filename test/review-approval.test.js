@@ -37,8 +37,8 @@ test('the queue reaches the operator through the application, not through a modu
   assert.ok(queue.groups.length > 0);
   assert.ok(queue.exceptions.length > 0);
   assert.ok(queue.rankedBy, 'the ordering is labelled');
-  assert.equal(queue.rankedBy, 'quantity-proxy');
-  assert.ok(queue.caveat, 'and carries its caveat');
+  assert.equal(queue.rankedBy, 'money-at-risk');
+  assert.equal(queue.caveat, null, "money ranking needs no provisional caveat");
   assert.equal(queue.counts.blocking >= 0, true);
 });
 
