@@ -1,115 +1,218 @@
-# Tickets
+# Tickets - consolidated roadmap
 
-One chart. Merges the pre-frontend plan (`chat handoff reference/HANDOFF.md` §12 and the
-build plan §6–7) with everything found since the frontend landed, plus the carried
-limitations in `OPEN-ITEMS.md`.
+One chart. Merges the original build plan, the pre-frontend HANDOFF, every ticket completed since, the post-frontend findings, and the phase roadmap into one ordered view. Last reconciled 25 Aug 2026.
 
-**Status key** — `DONE` shipped · `NOW` next up · `NEXT` after that · `LATER` real work,
-not yet · `BLOCKED` waiting on something outside the code · `DECIDED-NO` deliberately
-not doing.
+| mark | meaning |
+|---|---|
+| DONE | implemented, tested, in main |
+| NOW | the current batch |
+| NEXT | after the current batch |
+| LATER | real work, not yet |
+| BLOCKED | needs something outside the code |
+| DECIDED NO | deliberately not building |
 
-Ordering within a status is by value, not by effort.
+**The working rule:** a user-facing ticket is only DONE when it works end to end in the real UI - not when the backend or tests alone pass.
 
 ---
 
-## NOW — these are what stand between you and a BOQ from a real drawing
+## Where the project is
 
-| # | Ticket | Why it matters | Depends on |
-|---|---|---|---|
-| ~~T1~~ | **DONE — measure walls drawn as LWPOLYLINE and LINE** | Rules only measure walls from `HATCH`. Real plans draw walls as closed polylines or line pairs, so a drawing ingests and the BOQ comes back nearly empty. `Gplus2` measures 3 of 9 lines for exactly this reason. Needs a centre-line-plus-thickness rule using the existing `wallThickness` assumption. | — |
-| ~~T2~~ | **DONE — floor inferred from wall boundary (flagged) + broader floor layers** | Rooms are only found as `LWPOLYLINE` on a room-named layer. Most drawings have no room layer at all; the room is implied by the walls enclosing it. Without this, `floor_area` is 0 on most real files. | T1 |
-| ~~T3~~ | **DONE** — Ask for the fallback unit *when* units are missing, not upfront | The backend already accepts `fallbackUnit` and completes correctly — verified. The frontend shows the selector from the start, so it reads as a required field nobody understands, and the failure that needs it looks like a dead end. Pure UX wiring. | — |
-| ~~T4~~ | **DONE — export over HTTP (CSV/XLSX/PDF + sidecar), buttons in UI** | `exportBoq` is built, tested and reproducible, but has no server route. The "Approve & Export" nav item has nothing behind it. Q9 is closed in the engine and unreachable in the product. | — |
-| ~~T5~~ | **DONE** — `GET /api/projects` + restore the workspace on reload | No list endpoint exists and the frontend keeps no project id, so refreshing the page strands an existing project permanently. On a demo this reads as data loss. | — |
+The V1 functional foundation is complete: DXF ingestion, measurement engine, BOQ engine, pricing and export, operator workflow, and the core interface. The Vercel deployment blocker is fixed. The product has shifted from "can I process a drawing" to "can a human see what was extracted and verify it".
 
-## NEXT
+That drawing-BOQ-evidence-verification loop is the heart of the remaining work.
 
-| # | Ticket | Why it matters | Depends on |
-|---|---|---|---|
-| ~~F1–F9~~ | **DONE — frontend rebuilt** | The interface had no state model: the same fact lived in a `dataset` attribute, a module variable, `localStorage` and DOM text, and every reported bug was two of them disagreeing. The sidebar did not navigate — `showView` only scrolled — so every section rendered at once. Rebuilt around one store, one API client, and a real router. See `FRONTEND-REBUILD.md`. | — |
-| ~~T6~~ | **DONE** — Progressive disclosure: hide sections until they have content | Every section renders as an empty heading before anything is uploaded. Makes a working system look broken. | — |
-| ~~T7~~ | **DONE** — Landing → upload → work, in that order | Project name is demanded before anything can happen. Make it optional: let someone upload and look, and name the project only if they are keeping it. | T6 |
-| T8 | **Draw the OCR crop on the image** | The crop is specified by typing x/y/width/height. Unusable in practice — 40 attempts, 0 successes — and a mis-typed crop returns "Malformed OCR polygon or empty text" with no guidance. | — |
-| T9 | **OCR-first raster flow** | On upload, run OCR before asking anything: read the scale bar, the units and the dimension strings, propose regions, then show the human what was found for confirmation. Today the operator is asked for two points and a distance even when the sheet states its scale. | T8 |
-| ~~T10~~ | **DONE — deterministic PDF export** | The artefact is already format-agnostic, so this is a new encoder rather than a new pipeline. A client-facing BOQ is expected as PDF. | T4 |
-| ~~T11~~ | **DONE** — Rename "Create processing run" | Internal vocabulary on the primary button. | — |
-| ~~T12~~ | **DONE** — Reconcile the upload limit | UI promises 50 MB, backend enforces 10 MB. | — |
-| ~~T13~~ | **DONE** — Auto-select a newly created building | Creating a building then failing with "Select a building before adding a storey" is needless friction. | — |
+---
 
-## LATER
+## NOW - Phase 1: Drawing intelligence and human verification
 
-| # | Ticket | Why it matters | Depends on |
-|---|---|---|---|
-| T14 | **Persistent host, or Postgres** | The store is in-memory, so on Vercel a cold start returns "Project not found". `src/repository.js` was deliberately kept narrow so this is a one-file swap. | — |
-| T15 | **Catalogue mapping for real rate books** | Rates are matched on `itemCode` equal to the measurement name, so a studio must author its rate book as `floor_area`. Real books will not. | — |
-| T16 | **Vendor selection should re-price the line** | A selection is recorded and audited but does not change an exported amount. | T4 |
-| T17 | **Polygon raster proposals** | `coerceBoxes` accepts axis-aligned rectangles only, so an L-shaped room is squared off. Mitigated by the `rectangular_proposal` exception, not fixed. | — |
-| T18 | **Split one measurement across several items** | Internal vs external plaster needs an apportionment rule that does not exist. | T15 |
-| T19 | **Style the XLSX** | One sheet, inline strings, no formatting. | T10 |
-| T20 | **Tune the exception tiers on real drawings** | `implausible_magnitude` blocks approval and `low_confidence` fires on any non-HIGH line. Both are guesses until real drawings go through. | BLOCKED-1 |
-| T21 | **Queue traversal by cursor, not index** | Resolving an exception reorders the queue, so a held index can land on a different item. | — |
-| T22 | **Locality hierarchy** | Aliases are a fixed table; "Karnataka" will not match "Mysuru". | — |
-| T23 | **Bounded `hydrate` window tuning** | Constant at 200 runs, never tuned against real history. | T14 |
+The single next batch. Everything here serves one goal: the operator can see what the system extracted and verify it on the drawing.
 
-## BLOCKED — not solvable by writing code
+| # | Ticket | What it needs |
+|---|---|---|
+| T24 | Interactive drawing viewer - complete the loop | The canvas viewer exists (drawing-viewer.mjs, commit a953a8f) and renders geometry, but is not yet reachable from the Review BOQ view. Finish the wiring so every BOQ row offers a view-on-drawing action. |
+| T25 | BOQ <-> drawing bidirectional linking | BOQ row to highlight geometry exists in the workspace. Add the reverse: click a drawn object, see its measurement, quantity, catalogue item and provenance. The getObjectLines API already exists; it needs UI. |
+| T26 | Exception to drawing evidence | Each exception card gets a view-on-drawing action that opens the viewer focused on the affected sourceObjectId. The evidence API and viewer both exist; the card just needs the link. |
+| T27 | Exception overload reduction | A drawing can raise hundreds of exceptions. Grouping exists (12 to 1 on repeated symbols) but needs tuning: collapse same-cause groups across layers, cap the visible list. |
+| T28 | Human verification on the drawing | Confirm or reject or correct detected geometry directly on the canvas. The resolution API exists; the canvas interaction is new. |
+| T29 | Catalogue display in the review table | The review table shows "Unresolved" for the exact catalog item even though the default catalogue maps every standard measurement. Wire the mapped item into that column. |
+| T30 | Professional drawing UI polish | Layers panel, hover tooltips, keyboard zoom, scale readout, minimap for large drawings. |
+
+---
+
+## NEXT - Phase 2: Raster and OCR workflow
+
+| # | Ticket | What it needs |
+|---|---|---|
+| T8 | Draw the OCR crop on the image | Replace x/y/width/height text inputs with click-and-drag selection. The text-input crop produced 40 failures and 0 successes. |
+| T9 | OCR-first raster flow | On upload, run OCR before asking anything: read the scale bar, units and dimensions, propose regions, then show the human. |
+| T31 | Automatic scale detection | Detect scale bars and written dimensions before asking for two calibration points. |
+| T32 | Automatic unit detection | OCR identifies units where possible; ask only when confidence is insufficient. |
+| T33 | Visual region correction | Draw or fence missing regions on the image and optionally name them. |
+| T34 | Re-OCR selected regions | After a region is marked, reprocess that region and present the conclusion. |
+| T17 | Polygon raster proposals | Accept L-shaped and irregular region proposals, not only axis-aligned rectangles. |
+
+---
+
+## NEXT - Phase 3: Professional UX
+
+| # | Ticket | What it needs |
+|---|---|---|
+| T35 | Proper landing page | Introduce the product before the operator workspace. |
+| T36 | Upload-first experience | Upload without forced setup - partially done, finish it. |
+| T37 | Contextual sections | Only show sections relevant to the current state. |
+| T38 | Professional processing states | A clear processing timeline instead of sudden jumps. |
+| T39 | Construction terminology | Continue replacing engineering terms with BOQ vocabulary. |
+| T40 | Better error UX | Errors explain what happened, why it matters, and what to do. |
+
+---
+
+## LATER - Phase 4: Real pricing
+
+| # | Ticket | What it needs |
+|---|---|---|
+| T15 | Real studio rate books | Studios upload their actual books instead of indicative defaults. |
+| T16 | Vendor selection re-prices the line | A recorded selection should update the exported amount. |
+| T18 | Split a measurement across items | Internal vs external plaster needs an apportionment rule. |
+| T19 | Professional XLSX formatting | Sheets, headers, sections, totals, formatting. |
+| T41 | BOQ pricing summary | Subtotals, line totals, taxes, pricing source per line. |
+| T42 | Rate provenance in the export | Show whether a rate came from the studio book, the default, or a vendor. |
+
+---
+
+## LATER - Phase 5: Production infrastructure
+
+| # | Ticket | What it needs |
+|---|---|---|
+| T14 | Persistent storage | Move off in-memory state; src/repository.js is a one-file swap by design. |
+| T43 | Postgres deployment | Projects survive cold starts and multiple instances. |
+| T44 | Production file storage | Persistent storage for drawings and exports. |
+| T45 | Production deployment validation | Fresh deployment, env vars, API and runtime checks. |
+| T23 | Hydration window tuning | Tune the 200-run window against real usage. |
+
+---
+
+## LATER - Phase 8: Final polish
+
+| # | Ticket | What it needs |
+|---|---|---|
+| T20 | Exception tier tuning | implausible_magnitude blocking and low_confidence frequency are guesses until real drawings land. |
+| T21 | Queue traversal by cursor | Resolving reorders the queue; an index can land on the wrong item. |
+| T22 | Locality hierarchy | Karnataka will not match Mysuru; aliases are a flat table. |
+| T46 | Drawing viewer minimap | A minimap so zoom and pan stay oriented on large drawings. |
+
+---
+
+## BLOCKED - needs real-world input, not code
 
 | # | Ticket | What unblocks it |
 |---|---|---|
-| B1 | **#19 real-project validation** | 10–15 real DXFs from 2–3 studios, saved from AutoCAD rather than downloaded. The E0/E1 harness is built and proven; it has never seen an architectural drawing. |
-| B2 | **E0 ground truth** | One studio's past BOQ for a drawing they also give you. |
-| B3 | **Live vision call** | A `VISION_API_KEY` and one run against `residual_test.dxf`. Discovery and error handling are verified against stubs only. |
-| B4 | **Service vs SaaS** | A business decision that changes what gets built. |
-
-## DECIDED-NO
-
-| # | Decision | Reasoning |
-|---|---|---|
-| N1 | **Do not build DWG ingestion** | Already decided in the build plan §6 and it still holds. DWG is closed binary; RealDWG and Autodesk Platform Services are enterprise licensing, LibreDWG is self-described beta, and ODA File Converter's terms for automated server use are unverified. "Save As → DXF" is one click for an architect. **The sample-files-are-all-DWG problem is a testing problem, not a customer problem** — convert them locally with the free ODA converter to build a corpus. Revisit only when a paying customer's workflow genuinely blocks on it. |
-| N2 | **No live rate feed, no scraping** | V1 imports a studio's own book plus optional dated published schedules. |
-| N3 | **No headline accuracy percentage** | Per-category deltas only. A single number on a synthetic corpus is a claim the evidence cannot support. |
-
-## DONE
-
-| # | Ticket | Shipped |
-|---|---|---|
-| D26 | Frontend rebuild: single store, one API client, real router (F1–F5) | `public/js/{store,api,router,render,app}.mjs` |
-| D27 | Raster/OCR ported behind the new state boundary, behaviour unchanged (F6) | `public/js/raster.mjs` |
-| D28 | Frontend state and API-client tests — a layer that could not be tested before (F7) | `test/frontend-store.test.js`, `test/frontend-api.test.js` |
-| D29 | Browser tests moved to the real navigation contract (F8) | `test-support/operator-page.js`, `test/operator-navigation.test.js` |
-| D30 | Build-freshness guard: a stale server announces itself (F9) | `GET /api/build`, `#build-stale` |
-| D31 | Reopening a project restores its run, so the graded BOQ comes back | `restoreRun()` in `public/js/app.mjs` |
-| D1 | R2 unified provenance (SourceObject / Contribution) | `src/provenance.js` |
-| D2 | Block geometry for INSERT references | degenerate bounds 8/15 → 0 |
-| D3 | R1 SQLite persistence behind a repository | 4-query rollup, append-only audit |
-| D4 | #6 versioned rulesets, opening deductions, project assumptions | `wall_plaster` 157.2 → 143.79 |
-| D5 | #18 conformance corpus + four-outcome ledger | 63 observations, 0 unflagged financial errors |
-| D6 | #10/#11 server-side vision, label-only contract, confirmed raster proposals | key in server config, never in a URL |
-| D7 | #12/#13 one exception queue, grouping, append-only approval | 12 → 1 group on repeated symbols |
-| D8 | #15/#16 versioned rate books, vendor offers | Q8 answered |
-| D9 | #24/#17 item catalogue, reproducible approved exports | Q9 answered, byte-identical re-export |
-| D10 | #14 workspace evidence API, signed breakdown | gross − deductions = net, 4 queries |
-| D11 | E0/E1 validation harness | read-only tooling, proven on synthetic corpus |
-| D12 | Accept real DXF files (group-code padding) | every AutoCAD/ezdxf file was being rejected |
-| D13 | Ingest real DXF instead of refusing entity by entity | unsupported ≠ malformed; 67/68 AutoCAD corpus parses |
-| D14 | Stop discarding LINE entities silently | validated then thrown away; walls-as-lines measured nothing |
-| D15 | Vercel serverless entry point | `api/index.js`; the deployment boots |
-| D16 | T1 — walls from LINE / LWPOLYLINE | centre-line length; HATCH byte-identical; Gplus2 wall_plan 0 → 64.584 m² |
-| D17 | T2 — floor from wall boundary when no room, flagged | Gplus2 floor 0 → 120 m² at LOW confidence + review exception |
-| D18 | T4/T10 — HTTP export (CSV/XLSX/PDF) + provenance sidecar + UI download | residual_test now exports end to end |
-| D19 | Default catalogue so approve/export is reachable without authoring one | residual_test 9 blocking → 0, approves |
-| D20 | Graceful external references (xref INSERT skipped + flagged, not fatal) | Floorplan (1).dxf ingests, missing furniture library flagged |
-| D21 | T3 — unit asked only when resolution fails, at the moment it matters | verified in-browser |
-| D22 | T5 — `GET /api/projects`, picker, and auto-restore on reload | refresh no longer strands a project |
-| D23 | T6 — empty sections dimmed in nav and labelled, not blank headings | |
-| D24 | T7 — project name optional, "Start working" | upload is no longer gated on naming |
-| D25 | T11/T12/T13 — "Measure this drawing", real 10 MB limit, auto-select new building/storey | |
+| B1 | #19 real-project validation | 10 to 15 real architectural DXFs from 2 or 3 studios, saved from AutoCAD. The E0/E1 harness is built; it has never seen an architectural drawing. |
+| B2 | E0 ground truth | One studio past BOQ for a drawing they also supply. |
+| B3 | Live vision validation | A VISION_API_KEY and one real run; discovery and error handling are stub-verified only. |
+| B4 | Exception calibration | Real drawings to decide which exceptions should actually block approval. |
+| B5 | Accuracy validation | System quantities vs real BOQs, category by category. |
+| B6 | Service vs SaaS | A business decision that changes what gets built. |
 
 ---
 
-## Corpus note
+## DECIDED NO
 
-`jscad/sample-files` (68 AutoCAD-authored DXFs) is now a useful **parser** regression
-corpus — 67 parse cleanly. It is **not** an architectural corpus: they are geometry
-primitives on layer `0`, so E1 classification reads 0.0% and the harness correctly
-reports a category collapse rather than inventing a number. It proves the parser and the
-harness; it cannot answer the E1 question. Only B1 can.
+| # | Decision | Reasoning |
+|---|---|---|
+| N1 | No DWG ingestion in V1 | DWG is closed binary; RealDWG and APS are enterprise licensing, LibreDWG is beta, ODA automated-use terms are unverified. Save As DXF is one click. Sample availability is a testing problem, not a customer problem. Revisit only when a paying customer blocks on it. |
+| N2 | No live rate feed or scraping | Studios supply their own books; published schedules are import-only. |
+| N3 | No headline accuracy percentage | Category-level deltas only; a single number on a synthetic corpus is an unsupported claim. |
+
+---
+
+## DONE
+
+### Frontend rebuild
+
+| # | Work | Shipped |
+|---|---|---|
+| F1-F5 | Single store, one API client, real router, data-driven views, build guard | public/js modules |
+| F6 | Raster/OCR ported behind the state boundary | public/js/raster.mjs |
+| F7 | Frontend state and API-client tests | test/frontend-*.test.js |
+| F8 | Browser tests on the real navigation contract | test/operator-navigation.test.js |
+| F9 | Build-freshness guard | GET /api/build |
+| D35 | Interactive drawing viewer | public/js/drawing-viewer.mjs |
+
+### Engine and pipeline
+
+| # | Work | Shipped |
+|---|---|---|
+| D1 | R2 unified provenance | src/provenance.js |
+| D2 | Block geometry for INSERT references | bounds 8/15 to 0 degenerate |
+| D3 | R1 SQLite persistence behind a repository | 4-query rollup, append-only audit |
+| D4 | #6 versioned rulesets, deductions, assumptions | wall_plaster 157.2 to 143.79 |
+| D5 | #18 conformance corpus, four-outcome ledger | 63 observations, 0 unflagged errors |
+| D6 | #10/#11 server-side vision, label-only contract | key in server config |
+| D7 | #12/#13 exception queue, grouping, append-only approval | 12 to 1 grouping |
+| D8 | #15/#16 rate books, vendor offers | Q8 answered |
+| D9 | #24/#17 catalogue, reproducible exports | Q9 answered, byte-identical |
+| D10 | #14 workspace evidence API, signed breakdown | 4 queries |
+| D11 | E0/E1 validation harness | proven on synthetic corpus |
+
+### Real-drawing ingestion
+
+| # | Work | Shipped |
+|---|---|---|
+| D12 | Accept real DXF group-code padding | every AutoCAD file was rejected |
+| D13 | unsupported is not malformed | 67/68 AutoCAD corpus parses |
+| D14 | LINE entities no longer discarded | walls-as-lines measured nothing |
+| D20 | Graceful external references | Floorplan (1).dxf ingests |
+
+### Measurement coverage
+
+| # | Work | Shipped |
+|---|---|---|
+| D16 | T1 walls from LINE and LWPOLYLINE | Gplus2 wall_plan 0 to 64.584 |
+| D17 | T2 floor from wall boundary, flagged | Gplus2 floor 0 to 120, LOW confidence |
+
+### Pricing and export
+
+| # | Work | Shipped |
+|---|---|---|
+| D18 | T4/T10 HTTP export CSV XLSX PDF plus sidecar and UI download | end-to-end export |
+| D19 | Default catalogue | residual_test 9 blocking to 0 |
+| D26 | Default indicative rate book | exports carry amounts |
+| D27 | Export rates and amounts | CSV XLSX PDF all priced |
+
+### Operator workflow
+
+| # | Work | Shipped |
+|---|---|---|
+| D21 | T3 unit asked only when resolution fails | verified in-browser |
+| D22 | T5 project list plus restore on reload | refresh no longer strands work |
+| D23 | T6 empty sections dimmed and labelled | |
+| D24 | T7 optional project name, Start working | |
+| D25 | T11/T12/T13 terminology, 10 MB limit, auto-select | |
+| D32 | Approval failures show their reason | was a silent TypeError |
+| D33 | Vercel serverless entry, valid config | api/index.js |
+| D34 | Vercel first-paint fix | lazy OCR, critical CSS, CDN assets |
+| D36 | boqVersionId wired into the UI | Approve and Export reachable |
+
+---
+
+## The phase roadmap
+
+NOW: Phase 1 Drawing intelligence (T24-T30)
+  then Phase 2 Raster and OCR (T8, T9, T31-T34, T17)
+  then Phase 3 Professional UX (T35-T40)
+  then Phase 4 Real pricing (T15, T16, T18, T19, T41, T42)
+  then Phase 5 Production (T14, T43, T44, T45, T23)
+  then Phase 6 Real studio validation (B1-B5)
+  then Final polish (T20, T21, T22, T46)
+
+---
+
+## Standing rules
+
+- Commit directly to main. No PRs, no GitHub issues.
+- Test-first at public behavioural seams.
+- Never fabricate results; unimplemented is reported as unavailable.
+- Run the nine-question merge gate on anything touching quantities or provenance.
+- A user-facing ticket is DONE only when it works end to end in the real UI.
+- Add new limitations to OPEN-ITEMS.md, not to report prose.
+- Batch related tickets, but never mark one done half-way.
