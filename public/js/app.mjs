@@ -12,6 +12,7 @@ import { createStore, reachability, approvalState, boqLines as selectBoqLines, b
 import { renderRunSummary, renderBoq, renderQueue, renderRollup } from './render.mjs';
 import { initRouter, renderView } from './router.mjs';
 import * as raster from './raster.mjs';
+import { createDrawingViewer } from './drawing-viewer.mjs';
 
 const store = createStore();
 
@@ -598,6 +599,23 @@ const wsContributions = el('#ws-contributions');
 const wsPosition = el('#ws-position');
 let wsQueueIndex = 0;
 
+/* The interactive drawing canvas. Created once; loaded per line selection. */
+const drawingCanvas = el('#drawing-canvas');
+const hoverInfo = el('#drawing-hover-info');
+const drawingViewer = drawingCanvas ? createDrawingViewer(drawingCanvas) : null;
+if (drawingViewer) {
+  drawingViewer.on('select', (object) => {
+    if (hoverInfo) {
+      hoverInfo.textContent = [
+        object.sourceObjectId,
+        'bounds: ' + (object.bounds || []).map(Math.round).join(', '),
+        'source: ' + object.geometrySource + ' (' + object.coordinateSpace + ')',
+        'resolution: ' + object.geometryResolution
+      ].join('\n');
+    }
+  });
+}
+
 function renderWorkspaceLines(run) {
   const lines = run?.boq?.lines?.length ? run.boq.lines : selectBoqLines(store.state);
   if (!wsLine || !lines.length) return;
@@ -624,6 +642,17 @@ async function renderLineEvidence(projectId, measurement) {
     : 'No viewport: this line resolved no geometry.';
 
   const objectsById = new Map(evidence.sourceObjects.map((object) => [object.sourceObjectId, object]));
+  /* Feed the drawing viewer: every source object of this line, with deductions
+     highlighted differently from adds. */
+  if (drawingViewer && evidence.viewport) {
+    const allObjects = store.state.run?.boq?.sourceObjects || [];
+    if (allObjects.length) drawingViewer.load(allObjects);
+    const contributingIds = evidence.contributions.map((c) => c.sourceObjectId);
+    drawingViewer.focusOn(contributingIds);
+    const deductIds = new Set(evidence.contributions.filter((c) => c.sign === 'deduct').map((c) => c.sourceObjectId));
+    drawingViewer.setRelated([...deductIds]);
+    drawingViewer.render();
+  }
   wsContributions.replaceChildren(...evidence.contributions.map((contribution) => {
     const row = document.createElement('tr');
     row.dataset.sign = contribution.sign;
