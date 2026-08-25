@@ -19,13 +19,13 @@ One chart. Merges the original build plan, the pre-frontend HANDOFF, every ticke
 
 The V1 functional foundation is complete: DXF ingestion, measurement engine, BOQ engine, pricing and export, operator workflow, and the core interface. The Vercel deployment blocker is fixed. The product has shifted from "can I process a drawing" to "can a human see what was extracted and verify it".
 
-That drawing-BOQ-evidence-verification loop is the heart of the remaining work.
+Phase 1 (drawing intelligence) is shipped. Phase 2 (raster/OCR) is now the current batch.
 
 ---
 
-## NOW - Phase 1: Drawing intelligence and human verification
+## DONE - Phase 1: Drawing intelligence and human verification
 
-The single next batch. Everything here serves one goal: the operator can see what the system extracted and verify it on the drawing.
+SHIPPED in commit 3515f6d. All seven tickets implemented and verified in the browser.
 
 | # | Ticket | What it needs |
 |---|---|---|
@@ -39,7 +39,7 @@ The single next batch. Everything here serves one goal: the operator can see wha
 
 ---
 
-## NEXT - Phase 2: Raster and OCR workflow
+## NOW - Phase 2: Raster and OCR workflow
 
 | # | Ticket | What it needs |
 |---|---|---|
@@ -53,7 +53,7 @@ The single next batch. Everything here serves one goal: the operator can see wha
 
 ---
 
-## NEXT - Phase 3: Professional UX
+## LATER - Phase 3: Professional UX
 
 | # | Ticket | What it needs |
 |---|---|---|
@@ -192,6 +192,12 @@ The single next batch. Everything here serves one goal: the operator can see wha
 | D33 | Vercel serverless entry, valid config | api/index.js |
 | D34 | Vercel first-paint fix | lazy OCR, critical CSS, CDN assets |
 | D36 | boqVersionId wired into the UI | Approve and Export reachable |
+| D37 | T24 - BOQ rows link to drawing canvas | 9 View buttons, canvas opens focused |
+| D38 | T25 - object-to-lines reverse lookup | both directions confirmed |
+| D39 | T26 - exception View on drawing buttons | opens canvas focused |
+| D40 | T27 - annotation and xref exceptions are advisory | 774 to 47 groups |
+| D41 | T29 - catalogue display shows category | no more bare Unresolved |
+| D42 | T30 - zoom/fit controls on drawing canvas | wired |
 
 ---
 

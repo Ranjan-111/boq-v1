@@ -16,6 +16,17 @@ never be reported as a satisfied one.
 
 ## Carried limitations
 
+- **T28 (human verification on the drawing) is partially implemented.** The
+  exception queue's resolve buttons clear exceptions and re-measure, which
+  covers the "confirm/reject" part. But the full canvas-interaction workflow
+  (drawing a room outline, adjusting a boundary by dragging vertices) is
+  genuinely remaining and needs a dedicated interaction design pass.
+- **The drawing viewer is read-only over existing provenance data.** It does
+  not fetch, does not create measurements, and has no state of its own beyond
+  what is currently displayed. Clicking an object emits an event; the
+  workspace listens and shows the reverse lookup. A full "click to edit"
+  workflow would need new API surface.
+
 - **Walls are only measured from HATCH entities.** Many real drawings draw walls as
   closed LWPOLYLINEs or as pairs of LINEs, so a drawing can now ingest cleanly and still
   measure almost nothing -- `Gplus2_combined_layers_fixed.dxf` ingests and measures 3 of
