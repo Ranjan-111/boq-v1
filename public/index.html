@@ -250,6 +250,12 @@
               <div id="drawing-viewer-wrap" style="position:relative;width:100%;aspect-ratio:16/10;background:#0d1117;border:1px solid #2a2f3a;margin:16px 0">
                 <canvas id="drawing-canvas" style="width:100%;height:100%;display:block;cursor:grab"></canvas>
                 <div id="drawing-hover-info" style="position:absolute;top:8px;left:8px;color:#8b949e;font-size:11px;font-family:monospace;pointer-events:none;white-space:pre"></div>
+                <div id="drawing-controls" style="position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:4px">
+                  <button id="drawing-zoom-in" style="width:28px;height:28px;background:#1a1f2a;color:#8b949e;border:1px solid #2a2f3a;font-size:14px;cursor:pointer" title="Zoom in">+</button>
+                  <button id="drawing-zoom-out" style="width:28px;height:28px;background:#1a1f2a;color:#8b949e;border:1px solid #2a2f3a;font-size:14px;cursor:pointer" title="Zoom out">&minus;</button>
+                  <button id="drawing-fit" style="width:28px;height:28px;background:#1a1f2a;color:#8b949e;border:1px solid #2a2f3a;font-size:10px;cursor:pointer" title="Fit all">FIT</button>
+                </div>
+                <div id="drawing-scale" style="position:absolute;bottom:8px;left:8px;color:#8b949e;font-size:11px;font-family:monospace;pointer-events:none"></div>
                 <div id="drawing-legend" style="position:absolute;bottom:8px;right:8px;display:flex;gap:12px;color:#8b949e;font-size:11px;font-family:monospace;pointer-events:none">
                   <span style="color:#e22718">&#9632;</span> selected
                   <span style="color:#4d7cfe">&#9632;</span> related

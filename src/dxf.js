@@ -439,6 +439,16 @@ function readEntity(type, groups, fallbackHandle = '') {
   return entity;
 }
 
+/* Layers whose geometry is annotation-adjacent: note leaders, dimension
+   strings, legend lines. A LINE on A-NOTE is a leader arrow, not a wall, so
+   omitting it cannot make a BOQ short. These are reported but advisory. */
+const ANNOTATION_LAYER_WORDS = Object.freeze(['NOTE', 'DIMS', 'DIM', 'TEXT', 'ANNO', 'LEGEND', 'LABEL']);
+
+function isAnnotationLayer(layer = '') {
+  const name = layer.toUpperCase();
+  return ANNOTATION_LAYER_WORDS.some((word) => name.includes(word));
+}
+
 function layerCategory(layer = '') {
   const name = layer.toUpperCase();
   if (name.includes('WALL')) return 'wall';
@@ -496,4 +506,4 @@ function malformedEntityError(type, handle, detail = '') { return new InputError
 function unsupportedEntityError(type) { return new InputError(`Unsupported or unvalidated ${type} entity; use a native DXF re-export or simplify the drawing before processing.`); }
 class InputError extends Error {}
 
-module.exports = { DXF_VERSIONS, UNIT_DEFINITIONS, inspectDxf, measureDxf, parseDxf, resolveUnits, layerCategory, blockCategory, placeBlockGeometry, InputError };
+module.exports = { DXF_VERSIONS, UNIT_DEFINITIONS, inspectDxf, measureDxf, parseDxf, resolveUnits, layerCategory, blockCategory, isAnnotationLayer, placeBlockGeometry, InputError };

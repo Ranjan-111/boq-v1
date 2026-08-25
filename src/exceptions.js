@@ -8,6 +8,8 @@
    No exception type may exist only in its originating module: if a check can
    stop an operator, it belongs here. */
 
+const { isAnnotationLayer } = require('./dxf');
+
 const SEVERITIES = Object.freeze({
   impossible_quantity: { severity: 'blocking', blocks: ['measurement', 'approval', 'export'] },
   not_measurable: { severity: 'blocking', blocks: ['approval', 'export'] },
@@ -125,10 +127,22 @@ function exceptionsForRun(run) {
 
   for (const entry of run.boq?.unclassified || []) {
     /* Split on whether the omission could have carried a quantity. */
-    const type = ['unmeasured-geometry', 'external-reference'].includes(entry.kind) ? 'unmeasured_geometry' : 'unclassified_geometry';
+    /* Annotation-layer geometry and xref entities cannot change a quantity:
+       a note leader is not a wall, and an xref lives outside the file. Both
+       are surfaced but advisory. Real geometry on a measured layer still
+       blocks, because a BOQ that ignored it could be short. */
+    const onAnnotationLayer = entry.layer ? isAnnotationLayer(entry.layer) : false;
+    const isXref = entry.block ? /xref/i.test(entry.block) : false;
+    const isUnmeasurable = ['unmeasured-geometry', 'external-reference'].includes(entry.kind);
+    const type = (isUnmeasurable && !onAnnotationLayer && !isXref)
+      ? 'unmeasured_geometry'
+      : 'unclassified_geometry';
+    /* Xref entities share one group: the geometry lives outside the file, so
+       each block name is equally opaque and the resolution is the same. */
+    const groupScope = isXref ? 'xref-references' : (entry.block || entry.layer || 'unknown');
     out.push(makeException({ ...base, type, anchor: entry.handle || entry.sourceObjectId,
       sourceObjectId: entry.sourceObjectId, measurement: null,
-      groupKey: `${type}:${entry.layer || 'unknown'}:${entry.type || 'geometry'}`,
+      groupKey: `${type}:${groupScope}:${entry.type || 'geometry'}`,
       impact: { quantity: null, unit: null },
       title: entry.kind === 'annotation'
         ? `${entry.type || 'An annotation'} on ${entry.layer || 'an unnamed layer'} was not measured`

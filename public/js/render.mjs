@@ -86,7 +86,9 @@ export function renderBoq(boq, classifications = []) {
     const body = table.querySelector('tbody');
     for (const classification of classifications) {
       const row = document.createElement('tr');
-      for (const value of [classification.sourceObjectId, `${classification.category.value || 'Unresolved'} (${classification.category.state})`, `${classification.catalogItem.value || 'Unresolved'} (${classification.catalogItem.state})`]) {
+      const catValue = classification.catalogItem.value || classification.category.value || "Unresolved";
+      const catState = classification.catalogItem.state !== "unresolved" ? classification.catalogItem.state : classification.category.state;
+      for (const value of [classification.sourceObjectId, `${classification.category.value || "Unresolved"} (${classification.category.state})`, `${catValue} (${catState})`]) {
         const cell = document.createElement('td');
         cell.textContent = value;
         row.append(cell);
@@ -158,6 +160,17 @@ export function renderBoq(boq, classifications = []) {
       statusCell.textContent = '—';
     }
     row.append(statusCell);
+
+    /* T24: view on drawing. */
+    const viewCell = document.createElement('td');
+    const viewBtn = document.createElement('button');
+    viewBtn.type = 'button';
+    viewBtn.className = 'btn-sm';
+    viewBtn.textContent = 'View';
+    viewBtn.dataset.measurement = line.measurement;
+    viewBtn.dataset.sourceObjectIds = JSON.stringify(contributions.map((c) => c.sourceObjectId));
+    viewCell.append(viewBtn);
+    row.append(viewCell);
 
     /* Provenance (expandable) */
     const provCell = document.createElement('td');
@@ -245,6 +258,15 @@ export function renderQueue(queue, onResolve) {
 
     const actions = document.createElement('div');
     actions.className = 'exception-actions';
+      if (group.members && group.members.some((m) => m.sourceObjectId)) {
+        const viewBtn = document.createElement('button');
+        viewBtn.type = 'button';
+        viewBtn.className = 'btn-sm';
+        viewBtn.textContent = 'View on drawing';
+        viewBtn.dataset.sourceObjectIds = JSON.stringify(group.members.map((m) => m.sourceObjectId).filter(Boolean));
+        if (group.members[0].measurement) viewBtn.dataset.measurement = group.members[0].measurement;
+        actions.append(viewBtn);
+      }
     for (const option of group.resolutionOptions || []) {
       /* Resolving an exception offers equal choices, not a call to action, so
          none of them takes the reserved blue fill: the system allows it at most

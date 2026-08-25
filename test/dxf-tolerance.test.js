@@ -176,6 +176,10 @@ test('an INSERT referencing an external block is skipped and reported, not fatal
   assert.equal(reported[0].kind, 'external-reference');
 
   const run = { id: 'run_0001', projectId: 'p', sourceDocumentId: 's', boq, residuals: [], pages: [] };
-  const blocking = exceptionsForRun(run).filter((e) => e.type === 'unmeasured_geometry');
-  assert.ok(blocking.length > 0, 'and the incomplete geometry blocks a clean approval');
+  /* T27: xref entities are advisory -- the geometry lives outside the file,
+     so it is not something the BOQ could have measured. It is surfaced for
+     visibility, not as a blocker. */
+  const raised = exceptionsForRun(run).filter((e) => e.severity === 'advisory');
+  assert.ok(raised.length > 0, 'the xref entity is surfaced');
+  assert.equal(raised[0].severity, 'advisory', 'as advisory, since the geometry lives outside this file');
 });

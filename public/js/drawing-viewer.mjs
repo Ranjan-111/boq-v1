@@ -303,8 +303,17 @@ export function createDrawingViewer(canvasElement, { margin = 40 } = {}) {
   /* Resize handling. */
   window.addEventListener('resize', () => render());
 
+  function zoomBy(factor) {
+    const cx = (view.minX + view.maxX) / 2;
+    const cy = (view.minY + view.maxY) / 2;
+    const halfW = (view.maxX - view.minX) / 2 * factor;
+    const halfH = (view.maxY - view.minY) / 2 * factor;
+    view = { minX: cx - halfW, minY: cy - halfH, maxX: cx + halfW, maxY: cy + halfH };
+    render();
+  }
+
   return {
-    load, focusOn, setView, fitAll, render, on,
+    load, focusOn, setView, fitAll, render, on, zoomBy,
     setRelated(ids) { relatedIds = new Set([...ids]); },
     setSelected(ids) { selectedIds = new Set([...ids]); },
     setUnresolved(ids) { unresolvedIds = new Set([...ids]); },

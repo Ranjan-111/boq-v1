@@ -416,6 +416,9 @@ if (dropzone && drawingInput) {
     if (file && caption) caption.innerHTML = `<strong>${file.name}</strong> selected`;
   });
 }
+  el('#drawing-zoom-in')?.addEventListener('click', () => drawingViewer.zoomBy(1 / 1.3));
+  el('#drawing-zoom-out')?.addEventListener('click', () => drawingViewer.zoomBy(1.3));
+  el('#drawing-fit')?.addEventListener('click', () => { drawingViewer.fitAll(); drawingViewer.render(); });
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -740,6 +743,31 @@ raster.initRaster({ toast, submit, pollRun, getRunId: () => currentRunId, setRun
 const initialView = initRouter(go);
 store.dispatch('view:changed', { view: initialView });
 render();
+
+/* T24/T26: "View on drawing" buttons dispatch to the workspace canvas. */
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-source-object-ids]');
+  if (!button) return;
+  const projectId = store.state.project?.id;
+  if (!projectId) return;
+  let ids;
+  try { ids = JSON.parse(button.dataset.sourceObjectIds); } catch { return; }
+  if (!ids || !ids.length) return;
+  store.dispatch('view:changed', { view: 'workspace' });
+  go('workspace');
+  if (drawingViewer) {
+    const allObjects = store.state.run?.boq?.sourceObjects || [];
+    if (allObjects.length) drawingViewer.load(allObjects);
+    drawingViewer.focusOn(ids);
+    drawingViewer.setSelected(ids);
+    drawingViewer.render();
+  }
+  const measurement = button.dataset.measurement;
+  if (measurement) {
+    wsLine.value = measurement;
+    await renderLineEvidence(projectId, measurement);
+  }
+});
 
 checkBuild();
 loadProjects().then(async (projects) => {
